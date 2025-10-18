@@ -1,0 +1,7 @@
+# Artifacts and CPAN bundles
+bundles/
+artifacts/
+
+# Local Carton files (if running locally)
+.carton/
+local/
