@@ -8,19 +8,28 @@ Complete multi-stage Podman/Docker workflow for building Perl applications with 
 - **Deterministic Dependencies**: Bundle hash based on `cpanfile.snapshot` ensures reproducibility
 - **Version Traceability**: Images tagged with bundle hash for full dependency lineage
 - **Minimal Runtime**: Production image contains no compilers, build tools, or Carton
-- **Library Testing**: Validate module loading in built images
+- **Comprehensive Testing**: Quick smoke tests and full CPAN test suites
+- **Flexible Test Configuration**: Per-module test customization with environment variables and custom commands
 
 ## Quick Start
 
-### 1. Generate CPAN Bundle
+### 1. Check Status
+
+```bash
+make status
+```
+
+Shows current state of dependencies, bundles, and images with color-coded output.
+
+### 2. Generate CPAN Bundle
 
 ```bash
 make bundle
 ```
 
-This computes a hash from `cpanfile.snapshot`, builds the carton-runner stage, generates a CPAN mirror bundle, and saves it as `bundles/bundle-<hash>.tar.gz`.
+Computes a hash from `cpanfile.snapshot`, builds the carton-runner stage, generates a CPAN mirror bundle, and saves it as `bundles/bundle-<hash>.tar.gz`.
 
-### 2. Build Images
+### 3. Build Images
 
 ```bash
 make all       # Build both dev and runtime images
@@ -29,18 +38,23 @@ make dev       # Build development image only
 make runtime   # Build runtime image only
 ```
 
-Images are tagged as:
+Images are tagged with bundle hash labels:
 - `myapp:dev-<hash>` and `myapp:dev`
 - `myapp:runtime-<hash>` and `myapp:runtime`
 
-### 3. Test Libraries (Optional)
+### 4. Test Libraries
 
 ```bash
-make test-dev      # Verify Perl modules load in dev image
-make test-runtime  # Verify Perl modules load in runtime image
+# Quick smoke test (loads modules only)
+make test-dev      # Test dev image
+make test-runtime  # Test runtime image
+
+# Full CPAN test suites (slow but thorough)
+make test-full-dev      # Run all module test suites in dev
+make test-full-runtime  # Run all module test suites in runtime
 ```
 
-### 4. Run Application
+### 5. Run Application
 
 ```bash
 podman run --rm myapp:dev       # Development image
@@ -50,30 +64,112 @@ podman run --rm myapp:runtime   # Production image
 ## Makefile Targets
 
 ```bash
-make help        # Show available targets with descriptions
-make status      # Check status of bundles and images
-make bundle      # Generate CPAN bundle from cpanfile.snapshot
-make dev         # Build development image (myapp:dev)
-make runtime     # Build runtime image (myapp:runtime)
-make all         # Generate bundle and build both images
-make test-dev    # Test Perl library loading in dev image
-make test-runtime # Test Perl library loading in runtime image
-make clean       # Remove images (bundles are preserved)
+make help                        # Show available targets with descriptions
+make status                      # Check status of bundles and images
+make bundle                      # Generate CPAN bundle from cpanfile.snapshot
+make dev                         # Build development image (myapp:dev)
+make runtime                     # Build runtime image (myapp:runtime)
+make all                         # Generate bundle and build both images
+make test-dev                    # Quick: test module loading in dev image
+make test-runtime                # Quick: test module loading in runtime image
+make test-full-dev               # Full: run CPAN test suites in dev image
+make test-full-runtime           # Full: run CPAN test suites in runtime image
+make test-full-dev MODULE=name   # Full: test single module in dev image
+make test-full-runtime MODULE=name # Full: test single module in runtime image
+make clean                       # Remove images (bundles are preserved)
 ```
 
 ### Checking Status
 
-The `status` target provides a comprehensive view:
+The `status` target provides a comprehensive view with color-coded output:
 
 ```bash
 make status
 ```
 
 Shows:
-- Current cpanfile.snapshot hash
-- Whether bundle exists for this snapshot
-- Image status (dev/runtime) and version alignment
+- Current cpanfile.snapshot hash and git status
+- Bundle existence and version alignment
+- Image status with bundle hash labels
 - Recommended commands to sync everything
+
+## Testing System
+
+### Quick Smoke Tests
+
+Fast module loading tests to verify all dependencies are installed:
+
+```bash
+make test-dev      # Test dev image (~5 seconds)
+make test-runtime  # Test runtime image (~5 seconds)
+```
+
+Uses `tests/module-load-test.pl` to attempt loading each module from cpanfile.
+
+### Full Test Suites
+
+Comprehensive testing that runs complete CPAN test suites for all modules:
+
+```bash
+make test-full-dev      # Full tests on dev image (can take 10+ minutes)
+make test-full-runtime  # Full tests on runtime image (can take 10+ minutes)
+```
+
+- Runs `cpanm --test-only --verbose` for each module
+- Saves timestamped reports to `test-reports/` directory
+- Summary report shows pass/fail/skip counts
+- Detail reports: **one file per failed module** with full test output for debugging
+
+**Single Module Testing (for debugging):**
+
+Test a single module instead of all modules:
+
+```bash
+make test-full-dev MODULE=DBI
+make test-full-runtime MODULE=DBD::Oracle
+```
+
+- Useful when debugging a specific module's test failures
+- Much faster than running all tests
+- Still generates summary and detail reports
+- Reports are named with module name (e.g., `dev-DBI-TIMESTAMP-summary.txt`)
+- Detail files for failed modules: `dev-DBI-TIMESTAMP-details/DBI.log`
+
+### Test Configuration
+
+Configure module-specific test behavior in `tests/test-config.conf`:
+
+```ini
+[ModuleName]
+skip_load = yes|no          # Skip in quick smoke test
+skip_test = yes|no          # Skip in full CPAN test suite
+reason = text               # Why skipping (shows in reports)
+env.VAR_NAME = value        # Set environment variable before testing
+test_command = command      # Custom test command (overrides default)
+```
+
+**Examples:**
+
+```ini
+# Skip build-time dependencies
+[Devel::CheckLib]
+skip_load = yes
+skip_test = yes
+reason = Build-time only dependency
+
+# Set environment for database drivers
+[DBD::Oracle]
+env.ORACLE_HOME = /opt/oracle/instantclient
+env.LD_LIBRARY_PATH = /opt/oracle/instantclient
+reason = Requires Oracle client libraries
+
+# Use custom test command for problematic modules
+[Problem::Module]
+test_command = cpanm --test-only --force Problem::Module
+reason = Some tests are flaky but module works
+```
+
+See `tests/README.md` for complete documentation.
 
 ## Architecture
 
@@ -100,16 +196,26 @@ This project implements a five-stage build process:
 │   ├── cpanm                  # cpanm fatpack
 │   ├── cpm                    # cpm fatpack
 │   └── instantclient-*.zip    # Oracle Instant Client
-├── scripts/
-│   ├── manage-perl-deps.sh    # Dependency management (bundle/update)
-│   ├── build-images.sh        # Image build script
-│   ├── check-status.sh        # Status checking
-│   ├── test-image.sh          # Test library loading in images
-│   └── perl-lib-test.pl       # Library test script
-└── bundles/
-    ├── .gitkeep
-    ├── bundle-<hash>.tar.gz   # Generated bundles (gitignored)
-    └── bundle-latest.tar.gz   # Symlink to latest bundle
+├── scripts/                   # Build and management scripts
+│   ├── bundle-create.sh       # CPAN bundle and dependency manager
+│   ├── build-image.sh         # Container image builder
+│   ├── status.sh              # Bundle and image status checker
+│   ├── test-load-modules.sh   # Quick module smoke test runner
+│   └── test-run-suites.sh     # Full CPAN test suite runner
+├── tests/                     # Test configuration and scripts
+│   ├── test-config.conf       # Module test configuration
+│   ├── TestConfig.pm          # Configuration parser
+│   ├── module-load-test.pl    # Quick smoke test script
+│   ├── test-suite-runner.pl   # Full test suite runner
+│   └── README.md              # Test system documentation
+├── bundles/                   # Generated CPAN bundles
+│   ├── bundle-<hash>.tar.gz   # Content-addressed bundles
+│   └── bundle-latest.tar.gz   # Symlink to latest bundle
+└── test-reports/              # Test result reports (gitignored)
+    ├── dev-TIMESTAMP-summary.txt
+    └── dev-TIMESTAMP-details/
+        ├── Module1.log
+        └── Module2.log
 ```
 
 ## Daily Workflow
@@ -119,23 +225,24 @@ This project implements a five-stage build process:
 1. Edit `cpanfile` to add new modules
 2. Regenerate bundle: `make bundle`
 3. Rebuild images: `make all`
-4. Test: `make test-dev` or `make test-runtime`
+4. Quick test: `make test-dev` or `make test-runtime`
+5. Full test (optional): `make test-full-dev`
 
 The new bundle will have a different hash, ensuring full traceability.
 
 ### Updating Existing Dependencies
 
-Use the `manage-perl-deps.sh` script:
+Use the `bundle-create.sh` script:
 
 ```bash
 # Update all dependencies to latest versions
-./scripts/manage-perl-deps.sh update --all
+./scripts/bundle-create.sh update --all
 
 # Update specific module to latest version
-./scripts/manage-perl-deps.sh update --module DBI
+./scripts/bundle-create.sh update --module DBI
 
 # Update specific module to specific version
-./scripts/manage-perl-deps.sh update --module DBI --version 1.643
+./scripts/bundle-create.sh update --module DBI --version 1.643
 ```
 
 After updating, regenerate the bundle:
@@ -143,21 +250,33 @@ After updating, regenerate the bundle:
 make bundle
 ```
 
-### Testing Library Installation
+### Debugging Test Failures
 
-The test script (`perl-lib-test.pl`) validates that all modules from `cpanfile` can be loaded:
+When `make test-full-dev` fails:
+
+1. Check the summary output for failed module list
+2. Review detailed failure logs: `test-reports/dev-latest-detail.txt`
+3. The detail report contains **only failed tests** with full verbose output
+4. Configure problematic modules in `tests/test-config.conf`:
+   - Skip tests: `skip_test = yes`
+   - Set environment: `env.VAR_NAME = value`
+   - Use custom command: `test_command = ...`
+
+### Configuring Module Tests
+
+Edit `tests/test-config.conf` to customize test behavior per module:
 
 ```bash
-make test-dev      # Test dev image
-make test-runtime  # Test runtime image
+# Example: Skip flaky module tests
+[Some::Flaky::Module]
+skip_test = yes
+reason = Tests fail in container but module works fine
+
+# Example: Set environment for database driver
+[DBD::Oracle]
+env.ORACLE_HOME = /opt/oracle/instantclient
+env.LD_LIBRARY_PATH = /opt/oracle/instantclient
 ```
-
-Test output shows:
-- `[ OK ]` - Module loaded successfully
-- `[FAIL]` - Module failed to load (with error details)
-- `[SKIP]` - Module in blacklist (see scripts/perl-lib-test.pl:11-14)
-
-The runtime image includes this test during build (Containerfile:155-157). The make targets allow re-testing after builds complete.
 
 ### Changing Perl Version
 
@@ -171,7 +290,8 @@ The runtime image includes this test during build (Containerfile:155-157). The m
 
 - Bundles are content-addressed by hashing `cpanfile.snapshot`
 - Cached bundles are reused if snapshot hasn't changed
-- Bundle hash tags images for full dependency lineage tracing
+- Bundle hash added as image label: `bundle.hash=<hash>`
+- Images tagged with bundle hash for full dependency lineage tracing
 - Bundles contain: `vendor/` directory, `cpanfile`, and `cpanfile.snapshot`
 
 ### Offline Installation
@@ -191,6 +311,13 @@ This ensures builds work completely offline once the bundle is generated.
 - Runs as non-root user `appuser` (UID 1001)
 - Contains only Perl installation and application code
 
+### Test Reports
+
+- **Summary reports**: Pass/fail/skip counts, list of failures, brief error context
+- **Detail reports**: Full verbose output for **failed tests only** (no noise from passing tests)
+- Timestamped: `{dev|runtime}-YYYYMMDD-HHMMSS-{summary|detail}.txt`
+- Symlinked: `{dev|runtime}-latest-{summary|detail}.txt` points to most recent
+
 ## Requirements
 
 - Podman or Docker
@@ -202,7 +329,7 @@ This ensures builds work completely offline once the bundle is generated.
 ### Bundle not found
 
 ```
-ERROR: Bundle not found at bundles/bundle-latest.tar.gz
+[MISSING] Bundle missing: bundle-<hash>.tar.gz
 ```
 
 **Solution**: Run `make bundle` first to generate the CPAN bundle.
@@ -226,12 +353,13 @@ ERROR: Bundle not found at bundles/bundle-latest.tar.gz
 - Check build logs for installation errors
 - Add missing system libraries to `perl-buildbase` or `runtime` stages
 - For dev image: ensure bundle includes all dependencies
+- Check `test-reports/*-latest-detail.txt` for full error output
 
 ### Permission issues
 
 **Cause**: Runtime image runs as non-root user `appuser` (UID 1001)
 
-**Solution**: Ensure application files and directories have appropriate permissions, or adjust the USER directive in Containerfile:176
+**Solution**: Ensure application files and directories have appropriate permissions, or adjust the USER directive in Containerfile
 
 ### Image doesn't exist when testing
 
@@ -241,12 +369,22 @@ ERROR: Image myapp:dev does not exist
 
 **Solution**: Build the image first: `make dev` or `make runtime`
 
+### Image has no bundle hash label
+
+```
+[WARNING] myapp:dev (no bundle hash label)
+```
+
+**Cause**: Image was built before bundle hash labels were added
+
+**Solution**: Rebuild the image: `make dev` or `make runtime`
+
 ## Advanced Customization
 
 ### Change Base Images
 
 Edit `FROM` directives in `Containerfile`:
-- Line 10: perl-src base (currently ubi8-minimal)
+- Line 10: perl-src base (currently ubi9-minimal)
 - Line 42: perl-buildbase (currently ubi9)
 - Line 136: runtime (currently ubi9-minimal)
 
@@ -261,16 +399,13 @@ Edit `./Configure` flags in `perl-src` stage (Containerfile:30-33) for different
 - `-Duseshrplib` - Build shared Perl library
 - `-Dprefix=/opt/perl` - Installation directory
 
-### Customize Test Blacklist
+### Customize Test Configuration
 
-Edit `scripts/perl-lib-test.pl` lines 11-14 to skip modules that shouldn't be tested:
-
-```perl
-my %blacklist = map { $_ => 1 } qw(
-    Devel::CheckLib
-    Mixin::Linewise
-);
-```
+See `tests/README.md` for complete documentation on:
+- Skipping modules from tests
+- Setting environment variables
+- Using custom test commands
+- Understanding test report format
 
 ## License
 

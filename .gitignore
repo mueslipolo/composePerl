@@ -5,3 +5,6 @@ artifacts/
 # Local Carton files (if running locally)
 .carton/
 local/
+
+# Test reports
+test-reports/

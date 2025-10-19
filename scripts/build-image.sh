@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# build-images.sh
-# Builds the dev and/or runtime images using the latest CPAN bundle
+# build-image.sh - Container image builder
 #
-# Usage:
-#   build-images.sh [dev|runtime|all]
-#   Default: all
+# Purpose: Builds dev and/or runtime images using the latest CPAN bundle
+# Usage:   build-image.sh [dev|runtime|all] (default: all)
+#          Or via: make dev, make runtime, make all
+# Requires: bundles/bundle-latest.tar.gz must exist (run 'make bundle' first)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -49,6 +49,7 @@ if [[ "${BUILD_TARGET}" == "dev" || "${BUILD_TARGET}" == "all" ]]; then
     echo "==> Building dev image (myapp:dev-${BUNDLE_HASH})..."
     podman build \
         --target perl-dev \
+        --label "bundle.hash=${BUNDLE_HASH}" \
         -t "myapp:dev-${BUNDLE_HASH}" \
         -t myapp:dev \
         -f "${PROJECT_ROOT}/Containerfile" \
@@ -64,6 +65,7 @@ if [[ "${BUILD_TARGET}" == "runtime" || "${BUILD_TARGET}" == "all" ]]; then
     echo "==> Building runtime image (myapp:runtime-${BUNDLE_HASH})..."
     podman build \
         --target runtime \
+        --label "bundle.hash=${BUNDLE_HASH}" \
         -t "myapp:runtime-${BUNDLE_HASH}" \
         -t myapp:runtime \
         -f "${PROJECT_ROOT}/Containerfile" \

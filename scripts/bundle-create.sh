@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# manage-perl-deps.sh
-# Unified script for managing Perl dependencies with Carton
+# bundle-create.sh - CPAN bundle and dependency manager
 #
-# Commands:
-#   bundle                              - Generate CPAN bundle from cpanfile.snapshot
-#   update --all                        - Update all dependencies to latest
-#   update --module MODULE              - Update specific module to latest
-#   update --module MODULE --version V  - Update module to specific version
+# Purpose: Manages Perl dependencies using Carton
+# Usage:   bundle-create.sh bundle - Generate CPAN bundle from cpanfile.snapshot
+#          bundle-create.sh update --all - Update all dependencies to latest
+#          bundle-create.sh update --module MODULE - Update specific module
+#          bundle-create.sh update --module MODULE --version V - Update to version
+#          Or via: make bundle
+# Output:  Creates bundles/bundle-{HASH}.tar.gz with CPAN mirror
 
 # ============================================================================
 # Setup and shared functions
@@ -199,7 +200,7 @@ cmd_update() {
     echo ""
     echo "Next steps:"
     echo "  1. Review the changes to cpanfile.snapshot"
-    echo "  2. Run './scripts/manage-perl-deps.sh bundle' to generate a new bundle"
+    echo "  2. Run 'make bundle' to generate a new bundle"
 }
 
 # ============================================================================

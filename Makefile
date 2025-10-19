@@ -1,4 +1,4 @@
-.PHONY: help status bundle dev runtime all test-dev test-runtime clean
+.PHONY: help status bundle dev runtime all test-dev test-runtime test-full-dev test-full-runtime clean
 
 # Default target - show help
 help: ## Show this help message
@@ -9,25 +9,31 @@ help: ## Show this help message
 	@echo ""
 
 status: ## Check status of bundles and images
-	@./scripts/check-status.sh
+	@./scripts/status.sh
 
 bundle: ## Generate CPAN bundle from cpanfile.snapshot
-	@./scripts/manage-perl-deps.sh bundle
+	@./scripts/bundle-create.sh bundle
 
 dev: ## Build the development image (myapp:dev)
-	@./scripts/build-images.sh dev
+	@./scripts/build-image.sh dev
 
 runtime: ## Build the runtime image (myapp:runtime)
-	@./scripts/build-images.sh runtime
+	@./scripts/build-image.sh runtime
 
 all: bundle ## Generate bundle and build both dev and runtime images
-	@./scripts/build-images.sh all
+	@./scripts/build-image.sh all
 
 test-dev: ## Test Perl libraries in the dev image
-	@./scripts/test-image.sh dev
+	@./scripts/test-load-modules.sh dev
 
 test-runtime: ## Test Perl libraries in the runtime image
-	@./scripts/test-image.sh runtime
+	@./scripts/test-load-modules.sh runtime
+
+test-full-dev: ## Run full CPAN test suites in the dev image (use MODULE=name to test single module)
+	@./scripts/test-run-suites.sh dev $(MODULE)
+
+test-full-runtime: ## Run full CPAN test suites in the runtime image (use MODULE=name to test single module)
+	@./scripts/test-run-suites.sh runtime $(MODULE)
 
 clean: ## Remove images (bundles are preserved)
 	@echo "==> Cleaning up images..."

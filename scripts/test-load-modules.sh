@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# test-image.sh
-# Tests Perl library loading in built Docker images
+# test-load-modules.sh - Quick module smoke test runner
 #
-# Usage:
-#   test-image.sh [dev|runtime]
+# Purpose: Verifies all modules in cpanfile can be loaded (quick smoke test)
+# Usage:   test-load-modules.sh [dev|runtime]
+#          Or via: make test-dev, make test-runtime
+# Config:  Uses tests/test-config.conf (skip_load setting)
+# Output:  Pass/Fail count and list of skipped modules
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -43,14 +45,16 @@ if ! podman image exists "${IMAGE_NAME}"; then
 fi
 
 # Run the test script inside the container
-echo "==> Running perl-lib-test.pl in container..."
+echo "==> Running module-load-test.pl in container..."
 echo ""
 
 podman run --rm \
-    -v "${PROJECT_ROOT}/scripts/perl-lib-test.pl:/tmp/perl-lib-test.pl:ro" \
+    -v "${PROJECT_ROOT}/tests/module-load-test.pl:/tmp/module-load-test.pl:ro" \
+    -v "${PROJECT_ROOT}/tests/TestConfig.pm:/tmp/TestConfig.pm:ro" \
     -v "${PROJECT_ROOT}/cpanfile:/tmp/cpanfile:ro" \
+    -v "${PROJECT_ROOT}/tests/test-config.conf:/tmp/test-config.conf:ro" \
     "${IMAGE_NAME}" \
-    /opt/perl/bin/perl /tmp/perl-lib-test.pl
+    /opt/perl/bin/perl /tmp/module-load-test.pl
 
 TEST_EXIT_CODE=$?
 
