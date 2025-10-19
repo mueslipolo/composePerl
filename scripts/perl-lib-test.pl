@@ -7,7 +7,7 @@ use feature 'say';
 # -------------------------------
 # Config
 # -------------------------------
-my $cpanfile = 'cpanfile';
+my $cpanfile = '/tmp/cpanfile';
 my %blacklist = map { $_ => 1 } qw(
     Devel::CheckLib
     Mixin::Linewise
