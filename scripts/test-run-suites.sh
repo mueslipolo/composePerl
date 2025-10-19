@@ -56,19 +56,29 @@ echo "    Details: ${REPORT_DETAIL_DIR}/"
 echo ""
 
 # Create container and run test suite
+# Pass JOBS environment variable for parallel execution
+JOBS_PARAM=""
+if [[ -n "${JOBS:-}" ]]; then
+    JOBS_PARAM="-e JOBS=${JOBS}"
+fi
+
 if [[ -n "${MODULE_NAME}" ]]; then
     CONTAINER_ID=$(podman create \
+        ${JOBS_PARAM} \
         -v "${PROJECT_ROOT}/cpanfile:/tmp/cpanfile:ro" \
         -v "${CONFIG_FILE}:/tmp/test-config.conf:ro" \
         -v "${PROJECT_ROOT}/tests/test-suite-runner.pl:/tmp/test-suite-runner.pl:ro" \
+        -v "${PROJECT_ROOT}/tests/test-single-module.pl:/tmp/test-single-module.pl:ro" \
         -v "${PROJECT_ROOT}/tests/TestConfig.pm:/tmp/TestConfig.pm:ro" \
         "${IMAGE_NAME}" \
         /opt/perl/bin/perl /tmp/test-suite-runner.pl "${MODULE_NAME}")
 else
     CONTAINER_ID=$(podman create \
+        ${JOBS_PARAM} \
         -v "${PROJECT_ROOT}/cpanfile:/tmp/cpanfile:ro" \
         -v "${CONFIG_FILE}:/tmp/test-config.conf:ro" \
         -v "${PROJECT_ROOT}/tests/test-suite-runner.pl:/tmp/test-suite-runner.pl:ro" \
+        -v "${PROJECT_ROOT}/tests/test-single-module.pl:/tmp/test-single-module.pl:ro" \
         -v "${PROJECT_ROOT}/tests/TestConfig.pm:/tmp/TestConfig.pm:ro" \
         "${IMAGE_NAME}" \
         /opt/perl/bin/perl /tmp/test-suite-runner.pl)

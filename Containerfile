@@ -12,11 +12,12 @@ ARG PERL_VERSION=5.28.1
 # ============================================================================
 # Stage 1: perl-src - Compile Perl from source
 # ============================================================================
-FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS perl-src
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.6 AS perl-src
 
 ARG PERL_VERSION
 
 # Install build dependencies
+# hadolint ignore=DL3041
 RUN microdnf install -y \
     gcc \
     make \
@@ -30,13 +31,14 @@ WORKDIR /tmp/perl-build
 
 # Copy and extract Perl source
 COPY artifacts/perl-${PERL_VERSION}.tar.gz ./
-RUN tar -xzf perl-${PERL_VERSION}.tar.gz \
+# hadolint ignore=DL3003
+RUN tar -xzf "perl-${PERL_VERSION}.tar.gz" \
     && cd "perl-${PERL_VERSION}" \
     && ./Configure -des \
         -Dprefix=/opt/perl \
         -Dusethreads \
         -Duseshrplib \
-    && make -j$(nproc) \
+    && make -j"$(nproc)" \
     && make install \
     && cd / \
     && rm -rf /tmp/perl-build
@@ -47,12 +49,13 @@ RUN tar -xzf perl-${PERL_VERSION}.tar.gz \
 # This stage is the shared foundation for both dev and runtime images.
 # Contains ONLY runtime libraries (no build tools, no -devel packages).
 # Ensures dev and runtime have identical runtime dependencies.
-FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS system-libs
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.6 AS system-libs
 
 # Copy compiled Perl from previous stage
 COPY --from=perl-src /opt/perl /opt/perl
 
 # Install RUNTIME libraries only (no -devel packages, no build tools)
+# hadolint ignore=DL3041
 RUN microdnf -y install \
       libaio \
       expat \
@@ -81,6 +84,7 @@ ENV PATH="/opt/perl/bin:${PATH}" \
 # Install Oracle Instant Client (basic runtime libraries only)
 COPY artifacts/instantclient-basic*.zip /tmp/
 WORKDIR /opt/oracle
+# hadolint ignore=DL3041
 RUN microdnf install -y unzip \
     && unzip -o /tmp/instantclient-basic*.zip \
     && mv instantclient_* instantclient \
@@ -99,6 +103,7 @@ ENV LD_LIBRARY_PATH=/opt/oracle/instantclient \
 FROM system-libs AS perl-buildbase
 
 # Install BUILD tools and development headers
+# hadolint ignore=DL3041
 RUN microdnf -y install \
       # Core build tools
       gcc \
@@ -176,6 +181,7 @@ COPY cpanfile cpanfile.snapshot ./
 COPY bundles/bundle-latest.tar.gz /build/cpan-bundle.tar.gz
 
 # Extract bundle and install dependencies with cpm (offline)
+# hadolint ignore=DL3003
 RUN cd /build \
     && tar xzf cpan-bundle.tar.gz \
     && rm cpanfile.snapshot \
@@ -207,6 +213,7 @@ WORKDIR /app
 COPY app/ ./
 
 # Run as non-root user
+# hadolint ignore=DL3041
 RUN microdnf install -y shadow-utils \
     && useradd -m -u 1001 appuser \
     && chown -R appuser:appuser /app \

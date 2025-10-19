@@ -29,8 +29,8 @@ test-load-dev: ## Quick test: verify all Perl libraries can be loaded in dev ima
 test-load-runtime: ## Quick test: verify all Perl libraries can be loaded in runtime image
 	@./scripts/test-load-modules.sh runtime
 
-test-full: ## Run full CPAN test suites in dev image (use MODULE=name to test single module)
-	@./scripts/test-run-suites.sh $(MODULE)
+test-full: ## Run full CPAN test suites in dev image (use MODULE=name)
+	@ ./scripts/test-run-suites.sh $(MODULE)
 
 clean: ## Remove images (bundles are preserved)
 	@echo "==> Cleaning up images..."

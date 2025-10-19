@@ -16,7 +16,8 @@ This directory contains test configuration and scripts for validating Perl modul
 ### Test Scripts
 
 - **module-load-test.pl** - Quick smoke test: loads each module to verify it's available
-- **test-suite-runner.pl** - Full test: runs CPAN test suites for all modules
+- **test-suite-runner.pl** - Full test: runs CPAN test suites
+- **test-single-module.pl** - Worker script for test execution
 
 ## test-config.conf Format
 
@@ -63,10 +64,10 @@ Tests are run via Makefile targets:
 make test-load-dev
 make test-load-runtime
 
-# Full CPAN test suites (slow but thorough)
-make test-full               # Run all module tests (10-20 minutes)
+# Full CPAN test suites
+make test-full                    # Run all tests
 
-# Test a single module (useful for debugging)
+# Test a single module (always runs sequentially)
 make test-full MODULE=DBI
 make test-full MODULE=DBD::Oracle
 ```
