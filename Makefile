@@ -1,4 +1,4 @@
-.PHONY: help status bundle dev runtime all test-dev test-runtime test-full-dev test-full-runtime clean
+.PHONY: help status bundle dev runtime all test-load-dev test-load-runtime test-full clean
 
 # Default target - show help
 help: ## Show this help message
@@ -23,8 +23,11 @@ runtime: ## Build the runtime image (myapp:runtime)
 all: bundle ## Generate bundle and build both dev and runtime images
 	@./scripts/build-image.sh all
 
-test-load: ## Quick test: verify all Perl libraries can be loaded in dev image
-	@./scripts/test-load-modules.sh
+test-load-dev: ## Quick test: verify all Perl libraries can be loaded in dev image
+	@./scripts/test-load-modules.sh dev
+
+test-load-runtime: ## Quick test: verify all Perl libraries can be loaded in runtime image
+	@./scripts/test-load-modules.sh runtime
 
 test-full: ## Run full CPAN test suites in dev image (use MODULE=name to test single module)
 	@./scripts/test-run-suites.sh $(MODULE)

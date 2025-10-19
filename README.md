@@ -46,14 +46,18 @@ Images are tagged with bundle hash labels:
 
 ```bash
 # Quick smoke test (verify all modules can be loaded)
-make test-load
+make test-load-dev       # Test dev image
+make test-load-runtime   # Test runtime image
 
-# Full CPAN test suites (slow but thorough)
+# Full CPAN test suites (dev only - slow but thorough)
 make test-full              # Run all module test suites
 make test-full MODULE=DBI   # Test single module
 ```
 
-**Note:** Tests only run on the `dev` image, as the `runtime` image lacks build tools.
+**Note:**
+- Full test suites only run on `dev` image (runtime lacks build tools)
+- Module loading tests work on both dev and runtime
+- Full tests can take 10-20 minutes for all 700+ modules
 
 ### 5. Run Application
 
@@ -71,7 +75,8 @@ make bundle                   # Generate CPAN bundle from cpanfile.snapshot
 make dev                      # Build development image (myapp:dev)
 make runtime                  # Build runtime image (myapp:runtime)
 make all                      # Generate bundle and build both images
-make test-load                # Quick: verify all modules can be loaded
+make test-load-dev            # Quick: verify all modules load in dev image
+make test-load-runtime        # Quick: verify all modules load in runtime image
 make test-full                # Full: run CPAN test suites for all modules
 make test-full MODULE=name    # Full: run CPAN test suite for single module
 make clean                    # Remove images (bundles are preserved)
@@ -110,10 +115,11 @@ Uses `tests/module-load-test.pl` to attempt loading each module from cpanfile.
 Comprehensive testing that runs complete CPAN test suites for all modules:
 
 ```bash
-make test-full              # Full tests (can take 10+ minutes)
+make test-full              # Full tests (10-20 minutes for all modules)
 make test-full MODULE=DBI   # Test single module (faster)
 ```
 
+**Features:**
 - Runs `cpanm --test-only --verbose` for each module
 - Saves timestamped reports to `test-reports/` directory
 - Summary report shows pass/fail/skip counts

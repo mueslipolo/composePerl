@@ -1,5 +1,10 @@
 # Multi-stage Containerfile for Perl application with Carton dependency management
-# Stage workflow: perl-src → perl-buildbase → carton-runner → perl-dev → runtime
+# Stage workflow: perl-src → system-libs → perl-buildbase → carton-runner → perl-dev → runtime
+#
+# Key design:
+# - system-libs: Shared base layer with Perl + runtime libraries (used by both dev & runtime)
+# - perl-buildbase: Adds build tools on top of system-libs (for building modules)
+# - runtime: Uses system-libs directly (guaranteed identical runtime libs as dev)
 
 # Build argument for Perl version
 ARG PERL_VERSION=5.28.1
@@ -37,23 +42,33 @@ RUN tar -xzf perl-${PERL_VERSION}.tar.gz \
     && rm -rf /tmp/perl-build
 
 # ============================================================================
-# Stage 2: perl-buildbase - Base image with Perl and build dependencies
+# Stage 2: system-libs - Common base with Perl and runtime libraries
 # ============================================================================
-FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS perl-buildbase
+# This stage is the shared foundation for both dev and runtime images.
+# Contains ONLY runtime libraries (no build tools, no -devel packages).
+# Ensures dev and runtime have identical runtime dependencies.
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS system-libs
 
 # Copy compiled Perl from previous stage
 COPY --from=perl-src /opt/perl /opt/perl
 
-# Install all build dependencies for XS/CPAN modules
+# Install RUNTIME libraries only (no -devel packages, no build tools)
 RUN microdnf -y install \
-      gcc make perl-core perl-devel \
-      which util-linux findutils \
-      tar gzip unzip patch \
-      libxml2-devel libxslt-devel expat-devel libaio \
-      freetype-devel libpng-devel libjpeg-turbo-devel gd-devel \
-      postgresql-devel mariadb-connector-c-devel \
-      openssl-devel zlib-devel bzip2-devel xz-devel \
-      subversion-devel \
+      libaio \
+      expat \
+      libdb \
+      libpq \
+      mariadb-connector-c \
+      gd \
+      libpng \
+      libjpeg-turbo \
+      freetype \
+      libxml2 \
+      libxslt \
+      openssl-libs \
+      zlib \
+      bzip2-libs \
+      xz-libs \
   && microdnf clean all
 
 # Set Perl environment
@@ -63,20 +78,67 @@ ENV PATH="/opt/perl/bin:${PATH}" \
     PERL_MB_OPT="" \
     PERL_MM_OPT=""
 
-# Copy Oracle Instant Client artifacts
-COPY artifacts/instantclient-basic*.zip /tmp
-COPY artifacts/instantclient-sdk*.zip /tmp
-
+# Install Oracle Instant Client (basic runtime libraries only)
+COPY artifacts/instantclient-basic*.zip /tmp/
 WORKDIR /opt/oracle
-RUN unzip -o /tmp/instantclient-basic*.zip && \
-    unzip -o /tmp/instantclient-sdk*.zip && \
-    mv instantclient_* instantclient && \
-    rm -rf /tmp/*
-ENV LD_LIBRARY_PATH=/opt/oracle/instantclient
-ENV ORACLE_HOME=/opt/oracle/instantclient
+RUN microdnf install -y unzip \
+    && unzip -o /tmp/instantclient-basic*.zip \
+    && mv instantclient_* instantclient \
+    && rm -rf /tmp/* \
+    && microdnf remove -y unzip \
+    && microdnf clean all
+
+ENV LD_LIBRARY_PATH=/opt/oracle/instantclient \
+    ORACLE_HOME=/opt/oracle/instantclient
 
 # ============================================================================
-# Stage 3: carton-runner - Generate CPAN bundle with Carton
+# Stage 3: perl-buildbase - Build environment (system-libs + build tools)
+# ============================================================================
+# Inherits runtime libs from system-libs and adds build tools on top.
+# Used for: compiling XS modules, running CPAN tests, building bundles.
+FROM system-libs AS perl-buildbase
+
+# Install BUILD tools and development headers
+RUN microdnf -y install \
+      # Core build tools
+      gcc \
+      make \
+      perl-core \
+      perl-devel \
+      # Utilities
+      which \
+      util-linux \
+      findutils \
+      tar \
+      gzip \
+      unzip \
+      patch \
+      # Development headers (matching runtime libs from system-libs)
+      libxml2-devel \
+      libxslt-devel \
+      expat-devel \
+      freetype-devel \
+      libpng-devel \
+      libjpeg-turbo-devel \
+      gd-devel \
+      postgresql-devel \
+      mariadb-connector-c-devel \
+      openssl-devel \
+      zlib-devel \
+      bzip2-devel \
+      xz-devel \
+      subversion-devel \
+  && microdnf clean all
+
+# Install Oracle SDK (development headers for DBD::Oracle)
+COPY artifacts/instantclient-sdk*.zip /tmp/
+WORKDIR /opt/oracle
+RUN unzip -o /tmp/instantclient-sdk*.zip \
+    && cp -r instantclient_*/sdk instantclient/ \
+    && rm -rf instantclient_* /tmp/*
+
+# ============================================================================
+# Stage 4: carton-runner - Generate CPAN bundle with Carton
 # ============================================================================
 FROM perl-buildbase AS carton-runner
 
@@ -98,7 +160,7 @@ RUN /opt/perl/bin/carton install --deployment \
     && tar czf cpan-bundle.tar.gz ./vendor cpanfile cpanfile.snapshot
 
 # ============================================================================
-# Stage 4: perl-dev - Development image with offline dependency installation
+# Stage 5: perl-dev - Development image with offline dependency installation
 # ============================================================================
 FROM perl-buildbase AS perl-dev
 
@@ -106,7 +168,6 @@ WORKDIR /app
 
 # Copy cpm & cpanm fatpacked from artifacts
 COPY artifacts/cpm /opt/perl/bin/cpm
-#COPY artifacts/cpanm /opt/perl/bin/cpanm
 
 # Copy dependency files
 COPY cpanfile cpanfile.snapshot ./
@@ -119,7 +180,6 @@ RUN cd /build \
     && tar xzf cpan-bundle.tar.gz \
     && rm cpanfile.snapshot \
     && cpm install -g --resolver "02packages,file://$PWD/vendor/cache" \
-    #&& cpanm --from "$PWD/vendor/cache" --installdeps --notest --quiet . \
     && rm -rf /build ~/.perl-cpm
 
 # Copy application code
@@ -129,27 +189,16 @@ COPY app/ ./
 CMD ["/opt/perl/bin/perl", "app.pl"]
 
 # ============================================================================
-# Stage 5: runtime - Minimal runtime image
+# Stage 6: runtime - Minimal runtime image
 # ============================================================================
-FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS runtime
+# Inherits from system-libs (same base as dev), ensuring identical runtime libs.
+# Only adds: installed Perl modules from dev + application code + non-root user.
+FROM system-libs AS runtime
 
-# Copy Perl+libs and Oracle libraries
-COPY --from=perl-dev /opt/perl /opt/perl
-COPY --from=perl-buildbase /opt/oracle /opt/oracle
-
-# Install system dependencies
-RUN microdnf -y install \
-    libaio \
-    expat \
-    libpq \
-    libdb \
-    mariadb-connector-c \
-    gd libpng libjpeg-turbo freetype \
-    && microdnf clean all
-
-# Set Perl environment
-ENV PATH="/opt/perl/bin:${PATH}" \
-    PERL5LIB="/opt/perl/lib/perl5"
+# Copy installed Perl modules from perl-dev
+# Note: We copy from perl-dev (which has all CPAN modules installed)
+# but the base layer (system-libs) already has Perl and Oracle
+COPY --from=perl-dev /opt/perl/lib /opt/perl/lib
 
 # Set up application directory
 WORKDIR /app

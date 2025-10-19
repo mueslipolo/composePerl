@@ -63,6 +63,7 @@ say '';
 my (@ok, @fail, @skipped);
 my $total = scalar(@modules);
 
+# SEQUENTIAL EXECUTION
 for my $i (0 .. $#modules) {
     my $module = $modules[$i];
     my $progress = sprintf('[%d/%d]', $i + 1, $total);
@@ -107,12 +108,11 @@ for my $i (0 .. $#modules) {
         # When testing a single module, always create detailed report even on success
         if ($single_module) {
             my $module_safe = $module;
-            $module_safe =~ s/::/-/g;  # Replace :: with - for filename
+            $module_safe =~ s/::/-/g;
             my $module_detail_file = "$detail_dir/$module_safe.log";
 
             open my $module_fh, '>', $module_detail_file or die "Cannot open $module_detail_file: $!";
 
-            # Write detailed success information
             say $module_fh '=' x 70;
             say $module_fh "PASSED: $module";
             say $module_fh '=' x 70;
@@ -141,15 +141,13 @@ for my $i (0 .. $#modules) {
         push @skipped, { module => $module, reason => 'already tested/up to date' };
         say "$progress [SKIP] $module (already tested)";
 
-        # When testing a single module, create detailed report even when skipped
         if ($single_module) {
             my $module_safe = $module;
-            $module_safe =~ s/::/-/g;  # Replace :: with - for filename
+            $module_safe =~ s/::/-/g;
             my $module_detail_file = "$detail_dir/$module_safe.log";
 
             open my $module_fh, '>', $module_detail_file or die "Cannot open $module_detail_file: $!";
 
-            # Write detailed skip information
             say $module_fh '=' x 70;
             say $module_fh "SKIPPED: $module";
             say $module_fh '=' x 70;
@@ -176,18 +174,15 @@ for my $i (0 .. $#modules) {
             close $module_fh;
         }
     } else {
-        # FAILURE - Log detailed output to separate file per module
         push @fail, $module;
         say "$progress [FAIL] $module (exit: $exit_code)";
 
-        # Create separate detail file for this failed module
         my $module_safe = $module;
-        $module_safe =~ s/::/-/g;  # Replace :: with - for filename
+        $module_safe =~ s/::/-/g;
         my $module_detail_file = "$detail_dir/$module_safe.log";
 
         open my $module_fh, '>', $module_detail_file or die "Cannot open $module_detail_file: $!";
 
-        # Write detailed failure information
         say $module_fh '=' x 70;
         say $module_fh "FAILED: $module";
         say $module_fh '=' x 70;

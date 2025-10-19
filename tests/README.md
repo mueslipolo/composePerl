@@ -60,10 +60,11 @@ Tests are run via Makefile targets:
 
 ```bash
 # Quick smoke test (verify all modules can be loaded)
-make test-load
+make test-load-dev
+make test-load-runtime
 
-# Full CPAN test suites (run all module tests - slow!)
-make test-full
+# Full CPAN test suites (slow but thorough)
+make test-full               # Run all module tests (10-20 minutes)
 
 # Test a single module (useful for debugging)
 make test-full MODULE=DBI

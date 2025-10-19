@@ -4,22 +4,38 @@ set -euo pipefail
 # test-load-modules.sh - Quick module smoke test runner
 #
 # Purpose: Verifies all modules in cpanfile can be loaded (quick smoke test)
-# Usage:   test-load-modules.sh
-#          Or via: make test-load
+# Usage:   test-load-modules.sh [dev|runtime]
+#          Or via: make test-load-dev, make test-load-runtime
 # Config:  Uses tests/test-config.conf (skip_load setting)
 # Output:  Pass/Fail count and list of skipped modules
-# Note:    Only runs on dev image (runtime lacks build tools for testing)
+# Note:    Full test suites (make test-full) only work on dev image
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-IMAGE_NAME="myapp:dev"
+
+# Determine which image to test
+TEST_TARGET="${1:-dev}"
+
+case "${TEST_TARGET}" in
+    dev)
+        IMAGE_NAME="myapp:dev"
+        ;;
+    runtime)
+        IMAGE_NAME="myapp:runtime"
+        ;;
+    *)
+        echo "ERROR: Invalid target '${TEST_TARGET}'"
+        echo "Usage: $0 [dev|runtime]"
+        exit 1
+        ;;
+esac
 
 echo "==> Testing Perl libraries in ${IMAGE_NAME}"
 
 # Check if image exists
 if ! podman image exists "${IMAGE_NAME}"; then
     echo "ERROR: Image ${IMAGE_NAME} does not exist"
-    echo "Build the image first with: make dev"
+    echo "Build the image first with: make ${TEST_TARGET}"
     exit 1
 fi
 

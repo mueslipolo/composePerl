@@ -97,17 +97,20 @@ check_image() {
     local full_name="${image_name}:${image_tag}"
 
     if podman image exists "${full_name}" 2>/dev/null; then
+        # Get image size
+        local image_size=$(podman images --format "{{.Size}}" "${full_name}" 2>/dev/null | head -1)
+
         # Try to get the bundle hash from image labels
         local image_hash=$(podman inspect "${full_name}" --format '{{index .Config.Labels "bundle.hash"}}' 2>/dev/null || echo "")
 
         if [[ -n "${image_hash}" && "${image_hash}" == "${SNAPSHOT_HASH}" ]]; then
-            echo -e "  ${GREEN}[OK]${NC} ${full_name} (bundle: ${image_hash})"
+            echo -e "  ${GREEN}[OK]${NC} ${full_name} (bundle: ${image_hash}, size: ${image_size})"
             return 0
         elif [[ -n "${image_hash}" ]]; then
-            echo -e "  ${YELLOW}[WARNING]${NC} ${full_name} (bundle: ${image_hash}, expected: ${SNAPSHOT_HASH})"
+            echo -e "  ${YELLOW}[WARNING]${NC} ${full_name} (bundle: ${image_hash}, expected: ${SNAPSHOT_HASH}, size: ${image_size})"
             return 1
         else
-            echo -e "  ${YELLOW}[WARNING]${NC} ${full_name} (no bundle hash label)"
+            echo -e "  ${YELLOW}[WARNING]${NC} ${full_name} (no bundle hash label, size: ${image_size})"
             return 1
         fi
     else
@@ -118,7 +121,8 @@ check_image() {
 
 # Check carton-runner (may not exist, that's ok)
 if podman image exists "myapp:carton-runner" 2>/dev/null; then
-    echo -e "  ${GREEN}[OK]${NC} myapp:carton-runner exists"
+    local carton_size=$(podman images --format "{{.Size}}" "myapp:carton-runner" 2>/dev/null | head -1)
+    echo -e "  ${GREEN}[OK]${NC} myapp:carton-runner (size: ${carton_size})"
 fi
 
 # Check dev image

@@ -87,19 +87,19 @@ if [[ "${BUILD_TARGET}" == "all" ]]; then
     echo "    - Runtime image: myapp:runtime-${BUNDLE_HASH} (also tagged as myapp:runtime)"
     echo ""
     echo "Next steps:"
-    echo "  • Test libraries:  make test-dev  OR  make test-runtime"
+    echo "  • Test libraries:  make test-load-dev  OR  make test-load-runtime"
     echo "  • Run container:   podman run --rm -it myapp:dev /bin/bash"
     echo "                     podman run --rm -it myapp:runtime /bin/bash"
 elif [[ "${BUILD_TARGET}" == "dev" ]]; then
     echo "    - Dev image:     myapp:dev-${BUNDLE_HASH} (also tagged as myapp:dev)"
     echo ""
     echo "Next steps:"
-    echo "  • Test libraries:  make test-dev"
+    echo "  • Test libraries:  make test-load-dev"
     echo "  • Run container:   podman run --rm -it myapp:dev /bin/bash"
 else
     echo "    - Runtime image: myapp:runtime-${BUNDLE_HASH} (also tagged as myapp:runtime)"
     echo ""
     echo "Next steps:"
-    echo "  • Test libraries:  make test-runtime"
+    echo "  • Test libraries:  make test-load-runtime"
     echo "  • Run container:   podman run --rm -it myapp:runtime /bin/bash"
 fi
