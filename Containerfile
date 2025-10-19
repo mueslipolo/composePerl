@@ -7,7 +7,7 @@ ARG PERL_VERSION=5.28.1
 # ============================================================================
 # Stage 1: perl-src - Compile Perl from source
 # ============================================================================
-FROM registry.access.redhat.com/ubi8/ubi-minimal:latest AS perl-src
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS perl-src
 
 ARG PERL_VERSION
 
