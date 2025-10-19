@@ -45,14 +45,15 @@ Images are tagged with bundle hash labels:
 ### 4. Test Libraries
 
 ```bash
-# Quick smoke test (loads modules only)
-make test-dev      # Test dev image
-make test-runtime  # Test runtime image
+# Quick smoke test (verify all modules can be loaded)
+make test-load
 
 # Full CPAN test suites (slow but thorough)
-make test-full-dev      # Run all module test suites in dev
-make test-full-runtime  # Run all module test suites in runtime
+make test-full              # Run all module test suites
+make test-full MODULE=DBI   # Test single module
 ```
+
+**Note:** Tests only run on the `dev` image, as the `runtime` image lacks build tools.
 
 ### 5. Run Application
 
@@ -64,19 +65,16 @@ podman run --rm myapp:runtime   # Production image
 ## Makefile Targets
 
 ```bash
-make help                        # Show available targets with descriptions
-make status                      # Check status of bundles and images
-make bundle                      # Generate CPAN bundle from cpanfile.snapshot
-make dev                         # Build development image (myapp:dev)
-make runtime                     # Build runtime image (myapp:runtime)
-make all                         # Generate bundle and build both images
-make test-dev                    # Quick: test module loading in dev image
-make test-runtime                # Quick: test module loading in runtime image
-make test-full-dev               # Full: run CPAN test suites in dev image
-make test-full-runtime           # Full: run CPAN test suites in runtime image
-make test-full-dev MODULE=name   # Full: test single module in dev image
-make test-full-runtime MODULE=name # Full: test single module in runtime image
-make clean                       # Remove images (bundles are preserved)
+make help                     # Show available targets with descriptions
+make status                   # Check status of bundles and images
+make bundle                   # Generate CPAN bundle from cpanfile.snapshot
+make dev                      # Build development image (myapp:dev)
+make runtime                  # Build runtime image (myapp:runtime)
+make all                      # Generate bundle and build both images
+make test-load                # Quick: verify all modules can be loaded
+make test-full                # Full: run CPAN test suites for all modules
+make test-full MODULE=name    # Full: run CPAN test suite for single module
+make clean                    # Remove images (bundles are preserved)
 ```
 
 ### Checking Status
@@ -97,43 +95,31 @@ Shows:
 
 ### Quick Smoke Tests
 
-Fast module loading tests to verify all dependencies are installed:
+Fast module loading test to verify all dependencies are installed:
 
 ```bash
-make test-dev      # Test dev image (~5 seconds)
-make test-runtime  # Test runtime image (~5 seconds)
+make test-load    # Test dev image (~5 seconds)
 ```
 
 Uses `tests/module-load-test.pl` to attempt loading each module from cpanfile.
+
+**Note:** Only runs on `dev` image, as `runtime` lacks build tools for testing.
 
 ### Full Test Suites
 
 Comprehensive testing that runs complete CPAN test suites for all modules:
 
 ```bash
-make test-full-dev      # Full tests on dev image (can take 10+ minutes)
-make test-full-runtime  # Full tests on runtime image (can take 10+ minutes)
+make test-full              # Full tests (can take 10+ minutes)
+make test-full MODULE=DBI   # Test single module (faster)
 ```
 
 - Runs `cpanm --test-only --verbose` for each module
 - Saves timestamped reports to `test-reports/` directory
 - Summary report shows pass/fail/skip counts
-- Detail reports: **one file per failed module** with full test output for debugging
-
-**Single Module Testing (for debugging):**
-
-Test a single module instead of all modules:
-
-```bash
-make test-full-dev MODULE=DBI
-make test-full-runtime MODULE=DBD::Oracle
-```
-
-- Useful when debugging a specific module's test failures
-- Much faster than running all tests
-- Still generates summary and detail reports
-- Reports are named with module name (e.g., `dev-DBI-TIMESTAMP-summary.txt`)
-- Detail files for failed modules: `dev-DBI-TIMESTAMP-details/DBI.log`
+- Detail reports vary by mode:
+  - **Full test run**: One `.log` file per **failed** module only
+  - **Single module**: Always generates a `.log` file with full output, even on success
 
 ### Test Configuration
 
@@ -225,8 +211,8 @@ This project implements a five-stage build process:
 1. Edit `cpanfile` to add new modules
 2. Regenerate bundle: `make bundle`
 3. Rebuild images: `make all`
-4. Quick test: `make test-dev` or `make test-runtime`
-5. Full test (optional): `make test-full-dev`
+4. Quick test: `make test-load`
+5. Full test (optional): `make test-full`
 
 The new bundle will have a different hash, ensuring full traceability.
 
@@ -252,10 +238,11 @@ make bundle
 
 ### Debugging Test Failures
 
-When `make test-full-dev` fails:
+When `make test-full` fails:
 
 1. Check the summary output for failed module list
-2. Review detailed failure logs: `test-reports/dev-latest-detail.txt`
+2. Review detailed failure logs in `test-reports/full-TIMESTAMP-details/`
+3. Test individual module: `make test-full MODULE=FailedModule`
 3. The detail report contains **only failed tests** with full verbose output
 4. Configure problematic modules in `tests/test-config.conf`:
    - Skip tests: `skip_test = yes`

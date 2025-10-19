@@ -39,13 +39,13 @@ RUN tar -xzf perl-${PERL_VERSION}.tar.gz \
 # ============================================================================
 # Stage 2: perl-buildbase - Base image with Perl and build dependencies
 # ============================================================================
-FROM registry.access.redhat.com/ubi9/ubi:latest AS perl-buildbase
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS perl-buildbase
 
 # Copy compiled Perl from previous stage
 COPY --from=perl-src /opt/perl /opt/perl
 
 # Install all build dependencies for XS/CPAN modules
-RUN dnf -y install \
+RUN microdnf -y install \
       gcc make perl-core perl-devel \
       which util-linux findutils \
       tar gzip unzip patch \
@@ -54,9 +54,7 @@ RUN dnf -y install \
       postgresql-devel mariadb-connector-c-devel \
       openssl-devel zlib-devel bzip2-devel xz-devel \
       subversion-devel \
-      libxcrypt-compat \
-  && dnf -y install --allowerasing coreutils \
-  && dnf clean all
+  && microdnf clean all
 
 # Set Perl environment
 ENV PATH="/opt/perl/bin:${PATH}" \
@@ -140,8 +138,6 @@ COPY --from=perl-dev /opt/perl /opt/perl
 COPY --from=perl-buildbase /opt/oracle /opt/oracle
 
 # Install system dependencies
-# - libxcrypt-compat (perl 5.28.1 has to be built on ubi8)
-# - libaio (DBD::Oracle)
 RUN microdnf -y install \
     libaio \
     expat \
@@ -149,7 +145,6 @@ RUN microdnf -y install \
     libdb \
     mariadb-connector-c \
     gd libpng libjpeg-turbo freetype \
-    libxcrypt-compat \
     && microdnf clean all
 
 # Set Perl environment

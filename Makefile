@@ -23,17 +23,11 @@ runtime: ## Build the runtime image (myapp:runtime)
 all: bundle ## Generate bundle and build both dev and runtime images
 	@./scripts/build-image.sh all
 
-test-dev: ## Test Perl libraries in the dev image
-	@./scripts/test-load-modules.sh dev
+test-load: ## Quick test: verify all Perl libraries can be loaded in dev image
+	@./scripts/test-load-modules.sh
 
-test-runtime: ## Test Perl libraries in the runtime image
-	@./scripts/test-load-modules.sh runtime
-
-test-full-dev: ## Run full CPAN test suites in the dev image (use MODULE=name to test single module)
-	@./scripts/test-run-suites.sh dev $(MODULE)
-
-test-full-runtime: ## Run full CPAN test suites in the runtime image (use MODULE=name to test single module)
-	@./scripts/test-run-suites.sh runtime $(MODULE)
+test-full: ## Run full CPAN test suites in dev image (use MODULE=name to test single module)
+	@./scripts/test-run-suites.sh $(MODULE)
 
 clean: ## Remove images (bundles are preserved)
 	@echo "==> Cleaning up images..."

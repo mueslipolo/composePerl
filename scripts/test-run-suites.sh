@@ -4,40 +4,21 @@ set -euo pipefail
 # test-run-suites.sh - Full CPAN test suite runner
 #
 # Purpose: Runs complete test suites for all modules (slow but thorough)
-# Usage:   test-run-suites.sh [dev|runtime] [module-name]
-#          Or via: make test-full-dev, make test-full-runtime
+# Usage:   test-run-suites.sh [module-name]
+#          Or via: make test-full, make test-full MODULE=name
 #          Optional: specify module name to test only that module
 # Config:  Uses tests/test-config.conf (skip_test, env.*, test_command)
 # Output:  Summary and detailed reports saved to test-reports/ directory
+# Note:    Only runs on dev image (runtime lacks build tools for testing)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPORTS_DIR="${PROJECT_ROOT}/test-reports"
 CONFIG_FILE="${PROJECT_ROOT}/tests/test-config.conf"
+IMAGE_NAME="myapp:dev"
 
-# Determine which image to test
-TEST_TARGET="${1:-}"
-MODULE_NAME="${2:-}"
-
-if [[ -z "${TEST_TARGET}" ]]; then
-    echo "ERROR: No target specified"
-    echo "Usage: $0 [dev|runtime] [module-name]"
-    exit 1
-fi
-
-case "${TEST_TARGET}" in
-    dev)
-        IMAGE_NAME="myapp:dev"
-        ;;
-    runtime)
-        IMAGE_NAME="myapp:runtime"
-        ;;
-    *)
-        echo "ERROR: Invalid target '${TEST_TARGET}'"
-        echo "Usage: $0 [dev|runtime] [module-name]"
-        exit 1
-        ;;
-esac
+# Module name is now first argument
+MODULE_NAME="${1:-}"
 
 if [[ -n "${MODULE_NAME}" ]]; then
     echo "==> Running test suite for ${MODULE_NAME} in ${IMAGE_NAME}"
@@ -50,7 +31,7 @@ echo ""
 # Check if image exists
 if ! podman image exists "${IMAGE_NAME}"; then
     echo "ERROR: Image ${IMAGE_NAME} does not exist"
-    echo "Build the image first with: make ${TEST_TARGET}"
+    echo "Build the image first with: make dev"
     exit 1
 fi
 
@@ -62,11 +43,11 @@ TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 if [[ -n "${MODULE_NAME}" ]]; then
     # Sanitize module name for filename (replace :: with -)
     MODULE_SAFE=$(echo "${MODULE_NAME}" | tr ':' '-')
-    REPORT_SUMMARY="${REPORTS_DIR}/${TEST_TARGET}-${MODULE_SAFE}-${TIMESTAMP}-summary.txt"
-    REPORT_DETAIL_DIR="${REPORTS_DIR}/${TEST_TARGET}-${MODULE_SAFE}-${TIMESTAMP}-details"
+    REPORT_SUMMARY="${REPORTS_DIR}/${MODULE_SAFE}-${TIMESTAMP}-summary.txt"
+    REPORT_DETAIL_DIR="${REPORTS_DIR}/${MODULE_SAFE}-${TIMESTAMP}-details"
 else
-    REPORT_SUMMARY="${REPORTS_DIR}/${TEST_TARGET}-${TIMESTAMP}-summary.txt"
-    REPORT_DETAIL_DIR="${REPORTS_DIR}/${TEST_TARGET}-${TIMESTAMP}-details"
+    REPORT_SUMMARY="${REPORTS_DIR}/full-${TIMESTAMP}-summary.txt"
+    REPORT_DETAIL_DIR="${REPORTS_DIR}/full-${TIMESTAMP}-details"
 fi
 
 echo "==> Reports will be saved to:"
@@ -105,7 +86,11 @@ echo ""
 echo "==> Extracting detailed logs..."
 mkdir -p "${REPORT_DETAIL_DIR}"
 podman cp "${CONTAINER_ID}:/tmp/test-details/." "${REPORT_DETAIL_DIR}/" 2>/dev/null || {
-    echo "WARNING: No detailed logs to extract (all tests may have passed)"
+    if [[ -n "${MODULE_NAME}" ]]; then
+        echo "WARNING: No detailed logs to extract"
+    else
+        echo "WARNING: No detailed logs to extract (all tests may have passed)"
+    fi
 }
 
 # Cleanup container
@@ -118,9 +103,13 @@ echo "    Summary: ${REPORT_SUMMARY}"
 # Count detail files
 DETAIL_COUNT=$(find "${REPORT_DETAIL_DIR}" -name "*.log" 2>/dev/null | wc -l)
 if [[ ${DETAIL_COUNT} -gt 0 ]]; then
-    echo "    Details: ${REPORT_DETAIL_DIR}/ (${DETAIL_COUNT} failed module(s))"
+    if [[ -n "${MODULE_NAME}" ]]; then
+        echo "    Details: ${REPORT_DETAIL_DIR}/ (${DETAIL_COUNT} log file(s))"
+    else
+        echo "    Details: ${REPORT_DETAIL_DIR}/ (${DETAIL_COUNT} failed module(s))"
+    fi
 else
-    echo "    Details: ${REPORT_DETAIL_DIR}/ (no failures)"
+    echo "    Details: ${REPORT_DETAIL_DIR}/ (no logs generated)"
 fi
 
 echo ""

@@ -2,7 +2,9 @@
 
 ## Overview
 
-This directory contains test configuration and scripts for validating Perl modules in the container images.
+This directory contains test configuration and scripts for validating Perl modules in the dev container image.
+
+**Note:** Tests only run on the `dev` image, as the `runtime` image lacks build tools (compilers, make, etc.) needed for running CPAN test suites.
 
 ## Files
 
@@ -57,17 +59,15 @@ reason = Some tests are flaky
 Tests are run via Makefile targets:
 
 ```bash
-# Quick smoke tests (load modules only)
-make test-dev
-make test-runtime
+# Quick smoke test (verify all modules can be loaded)
+make test-load
 
-# Full CPAN test suites (run all module tests)
-make test-full-dev
-make test-full-runtime
+# Full CPAN test suites (run all module tests - slow!)
+make test-full
 
 # Test a single module (useful for debugging)
-make test-full-dev MODULE=DBI
-make test-full-runtime MODULE=DBD::Oracle
+make test-full MODULE=DBI
+make test-full MODULE=DBD::Oracle
 ```
 
 ### Single Module Testing
@@ -75,14 +75,14 @@ make test-full-runtime MODULE=DBD::Oracle
 When debugging a specific module's test failures, you can run tests for just that module:
 
 ```bash
-make test-full-dev MODULE=DBI
+make test-full MODULE=DBI
 ```
 
 This will:
 - Only test the specified module (DBI in this example)
 - Run much faster than testing all modules
-- Generate a report named with the module name (e.g., `dev-DBI-20250119-123456-summary.txt`)
-- Create detail directory with individual log files for each failed module
+- Generate a report named with the module name (e.g., `DBI-20250119-123456-summary.txt`)
+- **Always create a detailed log file** with full test output, even when the module passes
 - Exit with an error if the module name is not found in cpanfile
 
 Module names must match exactly as they appear in the cpanfile (case-sensitive, including `::` for namespaced modules).
@@ -92,9 +92,12 @@ Module names must match exactly as they appear in the cpanfile (case-sensitive, 
 Full test reports are saved to `test-reports/` with timestamps.
 
 - **Summary reports**: Pass/fail/skip counts for all tested modules (single .txt file)
-  - Example: `dev-20251019-090554-summary.txt`
-- **Detail reports**: One file per failed module in a `*-details/` directory
-  - Each failed module gets its own `.log` file (e.g., `DBD-mysql.log`)
-  - Only failed tests generate detail files (passing tests don't)
-  - Makes it easy to focus on specific failures
-  - Example: `dev-20251019-090554-details/DBD-mysql.log`
+  - Full test run: `full-20251019-090554-summary.txt`
+  - Single module: `DBI-20251019-090554-summary.txt`
+- **Detail reports**: Individual module logs in a `*-details/` directory
+  - When testing **all modules**: Only failed tests generate detail files (`.log` format)
+  - When testing a **single module** (`MODULE=xxx`): Always generates a detail file, even on success
+  - Each log file contains full test output and metadata (e.g., `DBD-mysql.log`)
+  - Makes it easy to focus on specific failures or examine detailed output
+  - Full test run: `full-20251019-090554-details/`
+  - Single module: `DBI-20251019-090554-details/DBI.log`

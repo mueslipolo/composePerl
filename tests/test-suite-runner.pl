@@ -103,9 +103,78 @@ for my $i (0 .. $#modules) {
     if ($exit_code == 0 && $output =~ /All tests successful|Result: PASS|Successfully tested/) {
         push @ok, $module;
         say "$progress [ OK ] $module";
+
+        # When testing a single module, always create detailed report even on success
+        if ($single_module) {
+            my $module_safe = $module;
+            $module_safe =~ s/::/-/g;  # Replace :: with - for filename
+            my $module_detail_file = "$detail_dir/$module_safe.log";
+
+            open my $module_fh, '>', $module_detail_file or die "Cannot open $module_detail_file: $!";
+
+            # Write detailed success information
+            say $module_fh '=' x 70;
+            say $module_fh "PASSED: $module";
+            say $module_fh '=' x 70;
+            say $module_fh "Exit code: $exit_code";
+
+            if (keys %$env_vars) {
+                say $module_fh "Environment: " . join(', ', map { "$_=$env_vars->{$_}" } keys %$env_vars);
+            }
+
+            if ($config->get_test_command($module)) {
+                say $module_fh "Custom command: " . $config->get_test_command($module);
+            } else {
+                say $module_fh "Command: cpanm --test-only --verbose $module";
+            }
+
+            say $module_fh '';
+            say $module_fh '-' x 70;
+            say $module_fh 'Full test output:';
+            say $module_fh '-' x 70;
+            say $module_fh $output;
+            say $module_fh '=' x 70;
+
+            close $module_fh;
+        }
     } elsif ($output =~ /is up to date|already installed/) {
         push @skipped, { module => $module, reason => 'already tested/up to date' };
         say "$progress [SKIP] $module (already tested)";
+
+        # When testing a single module, create detailed report even when skipped
+        if ($single_module) {
+            my $module_safe = $module;
+            $module_safe =~ s/::/-/g;  # Replace :: with - for filename
+            my $module_detail_file = "$detail_dir/$module_safe.log";
+
+            open my $module_fh, '>', $module_detail_file or die "Cannot open $module_detail_file: $!";
+
+            # Write detailed skip information
+            say $module_fh '=' x 70;
+            say $module_fh "SKIPPED: $module";
+            say $module_fh '=' x 70;
+            say $module_fh "Reason: already tested/up to date";
+            say $module_fh "Exit code: $exit_code";
+
+            if (keys %$env_vars) {
+                say $module_fh "Environment: " . join(', ', map { "$_=$env_vars->{$_}" } keys %$env_vars);
+            }
+
+            if ($config->get_test_command($module)) {
+                say $module_fh "Custom command: " . $config->get_test_command($module);
+            } else {
+                say $module_fh "Command: cpanm --test-only --verbose $module";
+            }
+
+            say $module_fh '';
+            say $module_fh '-' x 70;
+            say $module_fh 'Full test output:';
+            say $module_fh '-' x 70;
+            say $module_fh $output;
+            say $module_fh '=' x 70;
+
+            close $module_fh;
+        }
     } else {
         # FAILURE - Log detailed output to separate file per module
         push @fail, $module;
@@ -192,14 +261,28 @@ if (@skipped) {
 
 say '=' x 70;
 
-if (@fail) {
+# Show detailed log information
+if (@fail || $single_module) {
     say '';
-    say "Detailed failure logs in: $detail_dir/";
+    if ($single_module) {
+        say "Detailed test log in: $detail_dir/";
+    } else {
+        say "Detailed failure logs in: $detail_dir/";
+    }
     say "Files:";
-    for my $mod (@fail) {
-        my $mod_safe = $mod;
+
+    # For single module, show the log regardless of pass/fail
+    if ($single_module) {
+        my $mod_safe = $single_module;
         $mod_safe =~ s/::/-/g;
         say "  - $mod_safe.log";
+    } else {
+        # For full test run, only show failed modules
+        for my $mod (@fail) {
+            my $mod_safe = $mod;
+            $mod_safe =~ s/::/-/g;
+            say "  - $mod_safe.log";
+        }
     }
 }
 
