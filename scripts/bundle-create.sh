@@ -6,10 +6,10 @@ set -euo pipefail
 # Purpose: Manages Perl dependencies using Carton
 # Usage:   bundle-create.sh bundle - Generate CPAN bundle from cpanfile.snapshot
 #          bundle-create.sh update --all - Update all dependencies to latest
-#          bundle-create.sh update --module MODULE - Update specific module
-#          bundle-create.sh update --module MODULE --version V - Update to version
+#          bundle-create.sh update --module MODULE - Update specific module to latest
 #          Or via: make bundle
 # Output:  Creates bundles/bundle-{HASH}.tar.gz with CPAN mirror
+# Note:    To pin to a specific version, edit cpanfile manually (e.g., requires 'DBI', '== 1.643';)
 
 # ============================================================================
 # Setup and shared functions
@@ -106,7 +106,6 @@ cmd_bundle() {
 cmd_update() {
     local UPDATE_ALL=false
     local MODULE=""
-    local VERSION=""
 
     # Parse update command arguments
     while [[ $# -gt 0 ]]; do
@@ -117,10 +116,6 @@ cmd_update() {
                 ;;
             --module)
                 MODULE="$2"
-                shift 2
-                ;;
-            --version)
-                VERSION="$2"
                 shift 2
                 ;;
             *)
@@ -144,12 +139,6 @@ cmd_update() {
         exit 1
     fi
 
-    if [[ -n "${VERSION}" && -z "${MODULE}" ]]; then
-        echo "ERROR: --version requires --module"
-        show_usage
-        exit 1
-    fi
-
     # Verify cpanfile exists
     if [[ ! -f "${CPANFILE}" ]]; then
         echo "ERROR: cpanfile not found at ${CPANFILE}"
@@ -166,9 +155,6 @@ cmd_update() {
     if [[ "${UPDATE_ALL}" == "true" ]]; then
         echo "==> Updating all dependencies to latest versions..."
         CARTON_CMD="carton update"
-    elif [[ -n "${VERSION}" ]]; then
-        echo "==> Updating ${MODULE} to version ${VERSION}..."
-        CARTON_CMD="carton install ${MODULE}@${VERSION}"
     else
         echo "==> Updating ${MODULE} to latest version..."
         CARTON_CMD="carton install ${MODULE}"
@@ -212,16 +198,19 @@ show_usage() {
 Usage: $0 <command> [options]
 
 Commands:
-  bundle                              Generate CPAN bundle from cpanfile.snapshot
-  update --all                        Update all dependencies to latest
-  update --module MODULE              Update specific module to latest
-  update --module MODULE --version V  Update module to specific version
+  bundle                Generate CPAN bundle from cpanfile.snapshot
+  update --all          Update all dependencies to latest versions
+  update --module NAME  Update specific module to latest version
 
 Examples:
   $0 bundle
   $0 update --all
   $0 update --module DBI
-  $0 update --module DBI --version 1.643
+
+Note:
+  To pin a module to a specific version, edit cpanfile manually:
+    requires 'DBI', '== 1.643';
+  Then run 'make bundle' to regenerate the bundle.
 
 EOF
 }
