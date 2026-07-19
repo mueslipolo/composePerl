@@ -21,6 +21,7 @@ setup() {
 
   export PATH="$MOCKS_DIR:$PATH"
   touch "$BATS_TEST_TMPDIR/podman.log"
+  unset UBI_IMAGE
 }
 
 run_script() {
@@ -159,4 +160,20 @@ run_script() {
   [ -L "$PROJECT_DIR/bundles/bundle-latest.tar.gz" ]
   link_target=$(readlink "$PROJECT_DIR/bundles/bundle-latest.tar.gz")
   [ "$link_target" = "bundle-${expected_hash}.tar.gz" ]
+}
+
+# ── UBI_IMAGE override ────────────────────────────────────────────────────────
+
+@test "build_carton_runner passes --build-arg UBI_IMAGE when UBI_IMAGE is set" {
+  export UBI_IMAGE="registry.access.redhat.com/ubi8/ubi-minimal:8.10"
+  run_script update --module DBI
+  [ "$status" -eq 0 ]
+  grep -q -- "--build-arg UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10" \
+    "$BATS_TEST_TMPDIR/podman.log"
+}
+
+@test "build_carton_runner omits --build-arg UBI_IMAGE when UBI_IMAGE is not set" {
+  run_script update --module DBI
+  [ "$status" -eq 0 ]
+  ! grep -q -- "--build-arg UBI_IMAGE" "$BATS_TEST_TMPDIR/podman.log"
 }
