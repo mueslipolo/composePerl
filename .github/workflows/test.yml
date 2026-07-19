@@ -33,8 +33,7 @@ jobs:
           curl -fsSL https://cpanmin.us -o /tmp/cpanm
           perl /tmp/cpanm --notest -n -l ~/perl5 Carton App::cpm
           echo "$HOME/perl5/bin" >> "$GITHUB_PATH"
-          # Note: do not export PERL5LIB here — Carton manages it via local::lib
-          # and a conflicting PERL5LIB breaks module resolution inside carton install.
+          echo "PERL5LIB=$HOME/perl5/lib/perl5" >> "$GITHUB_ENV"
 
       # ── Phase 1: install from committed snapshot ──────────────────────────────
       # carton install (no --deployment) downloads pinned versions from CPAN using
