@@ -4,7 +4,7 @@
 # See README.md for detailed architecture documentation and Mermaid diagrams
 
 # Build argument for Perl version
-ARG PERL_VERSION=5.28.1
+ARG PERL_VERSION=5.42.2
 
 # ============================================================================
 # Stage 1/9: perl-src - Compile Perl from source
