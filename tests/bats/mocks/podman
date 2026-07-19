@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Mock podman for bats tests.
+# Logs every invocation to $BATS_TEST_TMPDIR/podman.log.
+# Returns plausible fake output without running real containers.
+
+echo "podman $*" >> "${BATS_TEST_TMPDIR}/podman.log"
+
+case "$1" in
+  create)
+    echo "fake-container-abc123"
+    ;;
+  cp)
+    # Create the destination file for local-dest copies
+    dest="${*: -1}"
+    if [[ "$dest" != *":"* ]]; then
+      mkdir -p "$(dirname "$dest")"
+      echo "mock-content" > "$dest"
+    fi
+    ;;
+  image)
+    if [[ "$2" == "exists" ]]; then
+      # Never report carton-runner as existing — avoids a `local` outside-function
+      # bug in status.sh line ~124 that would fire if this returned 0.
+      if [[ "$3" == *"carton-runner"* ]]; then
+        exit 1
+      fi
+      exit "${PODMAN_IMAGE_EXISTS_RC:-0}"
+    fi
+    ;;
+  images)
+    printf "REPOSITORY\tTAG\tIMAGE ID\tCREATED\tSIZE\n"
+    printf "myapp\tdev\tabc123\t1 hour ago\t500MB\n"
+    printf "myapp\truntime\tdef456\t1 hour ago\t100MB\n"
+    ;;
+  inspect)
+    echo "${PODMAN_BUNDLE_HASH:-abc123def456}"
+    ;;
+esac
+
+exit 0
