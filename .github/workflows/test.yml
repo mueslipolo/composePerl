@@ -64,13 +64,43 @@ jobs:
         run: PERL5LIB=/tmp/perl-install/lib/perl5 perl tests/integration/test-load.pl
 
       # ── Phase 2: carton update (tests the MR1 fix at real Carton level) ───────
-      # carton update rewrites cpanfile.snapshot in tests/integration/.
-      # Even if Try::Tiny is already at the latest version the command must
-      # exit 0 and the resulting snapshot must still produce a working bundle.
+      # Snapshot pins Try::Tiny to 0.30 and DBD::SQLite to 1.74 — both below
+      # current CPAN versions. carton update Try::Tiny must:
+      #   • bump Try::Tiny to the latest version (non-trivial update)
+      #   • leave DBD::SQLite at 1.74 (not updated — scoped update guard)
+      # If carton update were replaced with carton install (the MR1 bug), it
+      # would be a no-op and Try::Tiny would stay at 0.30, failing the assertion.
 
-      - name: carton update Try::Tiny (single-module update workflow)
+      - name: carton update Try::Tiny (single-module update, scoped assertion)
         working-directory: tests/integration
-        run: carton update Try::Tiny
+        run: |
+          before_try=$(grep "pathname.*Try-Tiny" cpanfile.snapshot)
+          before_dbd=$(grep "pathname.*DBD-SQLite" cpanfile.snapshot)
+          before_dbi=$(grep "pathname.*DBI-" cpanfile.snapshot)
+
+          carton update Try::Tiny
+
+          after_try=$(grep "pathname.*Try-Tiny" cpanfile.snapshot)
+          after_dbd=$(grep "pathname.*DBD-SQLite" cpanfile.snapshot)
+          after_dbi=$(grep "pathname.*DBI-" cpanfile.snapshot)
+
+          echo "Try::Tiny before: $before_try"
+          echo "Try::Tiny after:  $after_try"
+          echo "DBD::SQLite:      $before_dbd (unchanged)"
+
+          if [ "$before_try" = "$after_try" ]; then
+            echo "FAIL: carton update Try::Tiny made no change — snapshot still pinned to $before_try"
+            exit 1
+          fi
+          if [ "$before_dbd" != "$after_dbd" ]; then
+            echo "FAIL: carton update Try::Tiny changed DBD::SQLite ($before_dbd -> $after_dbd)"
+            exit 1
+          fi
+          if [ "$before_dbi" != "$after_dbi" ]; then
+            echo "FAIL: carton update Try::Tiny changed DBI ($before_dbi -> $after_dbi)"
+            exit 1
+          fi
+          echo "OK: Try::Tiny updated, DBD::SQLite and DBI unchanged"
 
       - name: Re-bundle after update
         working-directory: tests/integration
@@ -86,5 +116,5 @@ jobs:
           cd /tmp/work-updated && cpm install -L /tmp/perl-install-updated \
             --resolver "02packages,file://$PWD/vendor/cache"
 
-      - name: Verify modules load from updated bundle
-        run: PERL5LIB=/tmp/perl-install-updated/lib/perl5 perl tests/integration/test-load.pl
+      - name: Verify modules load from updated bundle and Try::Tiny was upgraded
+        run: PERL5LIB=/tmp/perl-install-updated/lib/perl5 perl tests/integration/test-load-updated.pl
