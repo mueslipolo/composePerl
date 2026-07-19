@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# bundle-create.sh - CPAN bundle and dependency manager
+# deps.sh - CPAN dependency manager
 #
 # Purpose: Manages Perl dependencies using Carton
-# Usage:   bundle-create.sh bundle - Generate CPAN bundle from cpanfile.snapshot
-#          bundle-create.sh update --all - Update all dependencies to latest
-#          bundle-create.sh update --module MODULE - Update specific module to latest
+# Usage:   deps.sh bundle               - Package current cpanfile.snapshot into an offline bundle
+#          deps.sh update --all         - Update all deps to latest versions in cpanfile.snapshot
+#          deps.sh update --module MOD  - Update one module to latest in cpanfile.snapshot
 #          Or via: make bundle
 # Output:  Creates bundles/bundle-{HASH}.tar.gz with CPAN mirror
-# Note:    To pin to a specific version, edit cpanfile manually (e.g., requires 'DBI', '== 1.643';)
+# Note:    To pin to a specific version, edit cpanfile first (e.g., requires 'DBI', '== 1.643';)
+#          then run: deps.sh update --module DBI
 
 # ============================================================================
 # Setup and shared functions
@@ -210,10 +211,12 @@ Examples:
   $0 update --all
   $0 update --module DBI
 
-Note:
-  To pin a module to a specific version, edit cpanfile manually:
+Notes:
+  'update --module' uses carton update, which fetches the latest version
+  satisfying cpanfile from CPAN regardless of what is currently in the
+  snapshot. To pin to a specific version, edit cpanfile first:
     requires 'DBI', '== 1.643';
-  Then run 'make bundle' to regenerate the bundle.
+  Then run 'deps.sh update --module DBI && make bundle'.
 
 EOF
 }

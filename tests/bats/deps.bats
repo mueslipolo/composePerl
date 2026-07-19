@@ -1,19 +1,19 @@
 #!/usr/bin/env bats
 
-# Tests for scripts/bundle-create.sh.
+# Tests for scripts/deps.sh.
 # All tests run without real containers — podman is mocked via tests/bats/mocks/podman.
 # The script is copied into an isolated temp project dir so its PROJECT_ROOT resolves
 # to that dir, keeping test side-effects away from the real repo.
 
 MOCKS_DIR="$BATS_TEST_DIRNAME/mocks"
-REAL_SCRIPT="$BATS_TEST_DIRNAME/../../scripts/bundle-create.sh"
+REAL_SCRIPT="$BATS_TEST_DIRNAME/../../scripts/deps.sh"
 REAL_CONTAINERFILE="$BATS_TEST_DIRNAME/../../Containerfile"
 
 setup() {
   export PROJECT_DIR="$BATS_TEST_TMPDIR/project"
   mkdir -p "$PROJECT_DIR/scripts" "$PROJECT_DIR/bundles"
 
-  cp "$REAL_SCRIPT"      "$PROJECT_DIR/scripts/bundle-create.sh"
+  cp "$REAL_SCRIPT"      "$PROJECT_DIR/scripts/deps.sh"
   cp "$REAL_CONTAINERFILE" "$PROJECT_DIR/Containerfile"
 
   echo "requires 'DBI';" > "$PROJECT_DIR/cpanfile"
@@ -25,7 +25,7 @@ setup() {
 }
 
 run_script() {
-  run "$PROJECT_DIR/scripts/bundle-create.sh" "$@"
+  run "$PROJECT_DIR/scripts/deps.sh" "$@"
 }
 
 # ── Regression: MR1 bug ────────────────────────────────────────────────────────
@@ -69,16 +69,16 @@ run_script() {
 
 # ── Contract: Containerfile WORKDIR vs script path ────────────────────────────
 
-@test "bundle-create.sh workdir matches Containerfile carton-runner WORKDIR" {
+@test "deps.sh workdir matches Containerfile carton-runner WORKDIR" {
   cf_workdir=$(awk '/AS carton-runner/{f=1} f && /^WORKDIR/{print $2; exit}' "$REAL_CONTAINERFILE")
   script_path=$(grep -oE "cd /[a-zA-Z0-9_-]+" "$REAL_SCRIPT" | head -1 | sed 's/cd //')
 
   [ -n "$cf_workdir" ] \
     || ( echo "FAIL: Could not extract WORKDIR from Containerfile for carton-runner stage"; false )
   [ -n "$script_path" ] \
-    || ( echo "FAIL: Could not extract 'cd /...' path from bundle-create.sh"; false )
+    || ( echo "FAIL: Could not extract 'cd /...' path from deps.sh"; false )
   [ "$cf_workdir" = "$script_path" ] \
-    || ( echo "DRIFT: Containerfile carton-runner WORKDIR='$cf_workdir' != bundle-create.sh cd path='$script_path'"; false )
+    || ( echo "DRIFT: Containerfile carton-runner WORKDIR='$cf_workdir' != deps.sh cd path='$script_path'"; false )
 }
 
 # ── Argument parsing ──────────────────────────────────────────────────────────

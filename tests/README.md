@@ -15,7 +15,7 @@ Mocks `podman` with a logging stub (`tests/bats/mocks/podman`) that records ever
 
 | File                     | What it covers                                                                                                                                                                         |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bundle-create.bats`     | Arg parsing, `carton update` vs `carton install` correctness, `/build` workdir, bundle hash naming, existing-bundle skip, symlink creation, UBI_IMAGE passthrough, precondition checks |
+| `deps.bats`     | Arg parsing, `carton update` vs `carton install` correctness, `/build` workdir, bundle hash naming, existing-bundle skip, symlink creation, UBI_IMAGE passthrough, precondition checks |
 | `build-image.bats`       | Target routing (`dev`/`runtime`/`all`), `--build-arg UBI_IMAGE` passthrough, hash extraction, missing-bundle guard                                                                     |
 | `status.bats`            | All exit-code paths (missing snapshot, missing bundle, stale symlink, hash mismatch, images missing, all-OK), carton-runner present/absent, no-git-repo safety                         |
 | `project-structure.bats` | Required files exist, scripts are executable                                                                                                                                           |
@@ -27,7 +27,7 @@ Two tests exist specifically to catch regressions of past bugs:
 - **`cmd_update --module uses carton update, not carton install`** — guards the fix for a silent no-op bug where `carton install MODULE` always exited 0 without updating the snapshot (it checked satisfiability rather than fetching latest).
 - **`cmd_update exec runs in /build not /app`** and **`cmd_update cp pulls from /build/cpanfile.snapshot not /app`** — guard the fix for a path bug where `cmd_update` referenced `/app` (which only exists in `perl-dev`/`runtime` stages) instead of `/build` (the `carton-runner` WORKDIR).
 
-A contract test (`bundle-create.sh workdir matches Containerfile carton-runner WORKDIR`) dynamically extracts both paths at test time so future drift between the Containerfile and the script is caught automatically.
+A contract test (`deps.sh workdir matches Containerfile carton-runner WORKDIR`) dynamically extracts both paths at test time so future drift between the Containerfile and the script is caught automatically.
 
 ### Adding bats to your machine
 
@@ -71,7 +71,7 @@ This ensures the `carton update` test is non-trivial: it must actually move Try:
 1. Install cpanm, Carton, cpm via `cpanm -l ~/perl5`
 1. `carton install` — downloads snapshot-pinned versions from CPAN
 1. `carton bundle` — builds offline `vendor/cache` mirror
-1. `tar czf /tmp/cpan-bundle.tar.gz` — creates bundle (mirrors `bundle-create.sh`)
+1. `tar czf /tmp/cpan-bundle.tar.gz` — creates bundle (mirrors `deps.sh`)
 1. Extract to fresh dir, `rm cpanfile.snapshot`, `cpm install --resolver 02packages,file://vendor/cache` — offline install (mirrors `perl-modules` Containerfile stage)
 1. Module load verification (`test-load.pl`)
 1. `carton update Try::Tiny` with before/after assertions:

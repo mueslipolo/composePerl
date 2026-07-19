@@ -19,8 +19,8 @@
   [[ -x "$BATS_TEST_DIRNAME/../../scripts/build-image.sh" ]]
 }
 
-@test "bundle-create.sh is executable" {
-  [[ -x "$BATS_TEST_DIRNAME/../../scripts/bundle-create.sh" ]]
+@test "deps.sh is executable" {
+  [[ -x "$BATS_TEST_DIRNAME/../../scripts/deps.sh" ]]
 }
 
 @test "test-load-modules.sh is executable" {
