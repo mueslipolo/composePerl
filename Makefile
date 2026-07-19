@@ -17,7 +17,7 @@ status: ## Check status of bundles and images
 	@./scripts/status.sh
 
 bundle: ## Generate CPAN bundle from cpanfile.snapshot
-	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/bundle-create.sh bundle
+	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/deps.sh bundle
 
 dev: ## Build the development image (myapp:dev)
 	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/build-image.sh dev

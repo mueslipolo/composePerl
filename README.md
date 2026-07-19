@@ -128,17 +128,17 @@ make status    # Verify everything is aligned
 Bumps one module's entry in `cpanfile.snapshot` to the latest version satisfying `cpanfile`, leaving all other locked versions unchanged:
 
 ```bash
-./scripts/bundle-create.sh update --module DBI
+./scripts/deps.sh update --module DBI
 make bundle    # Rebuild bundle from updated snapshot
 make all       # Rebuild images
 ```
 
-The `update --module` command uses `carton update MODULE`, not `carton install` — the latter is a no-op if the snapshot already satisfies the cpanfile requirement.
+`carton update MODULE` ignores the current snapshot entry for that module, goes to CPAN, and fetches the latest version satisfying `cpanfile`'s constraints (no constraint → absolute latest). Only that module's snapshot entry is rewritten; everything else stays locked.
 
 ### Update all modules to latest
 
 ```bash
-./scripts/bundle-create.sh update --all
+./scripts/deps.sh update --all
 make bundle
 make all
 ```
@@ -164,7 +164,7 @@ requires 'DBI', '>= 1.640, < 2.0'; # version range
 Then update the snapshot and rebuild:
 
 ```bash
-./scripts/bundle-create.sh update --module DBI
+./scripts/deps.sh update --module DBI
 make bundle && make all
 ```
 
@@ -220,7 +220,7 @@ Fast, no containers, no Oracle artifacts required. Mocks `podman` to assert on t
 bats tests/bats/       # runs all 37 tests, typically <10 seconds
 ```
 
-Covers: `bundle-create.sh` arg parsing, carton subcommand correctness, workdir correctness (regression guards for historical bugs), `build-image.sh` target routing and UBI_IMAGE passthrough, `status.sh` exit-code paths, project-structure smoke tests.
+Covers: `deps.sh` arg parsing, carton subcommand correctness, workdir correctness (regression guards for historical bugs), `build-image.sh` target routing and UBI_IMAGE passthrough, `status.sh` exit-code paths, project-structure smoke tests.
 
 Run in CI on every push and PR.
 
@@ -240,7 +240,7 @@ Run by the `integration` CI job on every push and PR (~3 min). Steps mirror the 
 
 1. `carton install` — downloads snapshot-pinned versions from CPAN
 1. `carton bundle` — builds offline `vendor/cache`
-1. `tar czf` — creates bundle tarball (same as `bundle-create.sh`)
+1. `tar czf` — creates bundle tarball (same as `deps.sh`)
 1. `cpm install --resolver 02packages,file://vendor/cache` — offline install (same as `perl-modules` Containerfile stage, including the `rm cpanfile.snapshot` step)
 1. Module load verification
 1. `carton update Try::Tiny` — asserts snapshot entry changed, DBD::SQLite entry unchanged
@@ -482,7 +482,7 @@ graph TD
 │   ├── cpm                    # cpm fatpack
 │   └── instantclient-*.zip    # Oracle Instant Client
 ├── scripts/                   # Build and management scripts
-│   ├── bundle-create.sh       # CPAN bundle and dependency manager
+│   ├── deps.sh       # CPAN dependency manager (bundle + snapshot update)
 │   ├── build-image.sh         # Container image builder
 │   ├── status.sh              # Bundle and image status checker
 │   ├── test-load-modules.sh   # Quick module smoke test runner
@@ -491,7 +491,7 @@ graph TD
 │   ├── bats/                  # Shell-level unit tests (bats-core)
 │   │   ├── mocks/
 │   │   │   └── podman         # Mock podman that logs invocations
-│   │   ├── bundle-create.bats # Tests for bundle-create.sh
+│   │   ├── deps.bats # Tests for deps.sh
 │   │   ├── build-image.bats   # Tests for build-image.sh
 │   │   ├── status.bats        # Tests for status.sh
 │   │   └── project-structure.bats  # File/permission smoke tests
@@ -533,14 +533,14 @@ The new bundle will have a different hash, ensuring full traceability.
 
 #### Update to Latest Versions
 
-Use the `bundle-create.sh` script to update to the latest versions:
+Use the `deps.sh` script to update to the latest versions:
 
 ```bash
 # Update all dependencies to latest versions
-./scripts/bundle-create.sh update --all
+./scripts/deps.sh update --all
 
 # Update specific module to latest version
-./scripts/bundle-create.sh update --module DBI
+./scripts/deps.sh update --module DBI
 ```
 
 After updating, regenerate the bundle:
@@ -567,7 +567,7 @@ requires 'DBI', '>= 1.640, < 2.0';
 Then update the snapshot and regenerate the bundle:
 
 ```bash
-./scripts/bundle-create.sh update --module DBI
+./scripts/deps.sh update --module DBI
 make bundle
 ```
 
