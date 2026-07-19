@@ -228,7 +228,7 @@ graph TD
 
 **Purpose:** Compile Perl from source with custom configuration
 
-- Compiles Perl 5.28.1 with thread support (`-Dusethreads`)
+- Compiles Perl 5.42.2 with thread support (`-Dusethreads`)
 - Builds shared Perl library (`-Duseshrplib`)
 - Installs to `/opt/perl`
 - Source downloaded to `artifacts/perl-${VERSION}.tar.gz`
@@ -355,7 +355,7 @@ graph TD
 ├── app/
 │   └── app.pl                 # Application code
 ├── artifacts/                 # Pre-downloaded build artifacts
-│   ├── perl-5.28.1.tar.gz
+│   ├── perl-5.42.2.tar.gz
 │   ├── cpanm                  # cpanm fatpack
 │   ├── cpm                    # cpm fatpack
 │   └── instantclient-*.zip    # Oracle Instant Client
