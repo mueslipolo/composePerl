@@ -12,6 +12,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUNDLE_LATEST="${PROJECT_ROOT}/bundles/bundle-latest.tar.gz"
 
+# Optional UBI base image override — passed through as --build-arg if set
+UBI_BUILD_ARGS=()
+if [[ -n "${UBI_IMAGE:-}" ]]; then
+    UBI_BUILD_ARGS=(--build-arg "UBI_IMAGE=${UBI_IMAGE}")
+fi
+
 # Determine which images to build
 BUILD_TARGET="${1:-all}"
 
@@ -49,6 +55,7 @@ if [[ "${BUILD_TARGET}" == "dev" || "${BUILD_TARGET}" == "all" ]]; then
     echo "==> Building dev image (myapp:dev-${BUNDLE_HASH})..."
     podman build \
         --target perl-dev \
+        "${UBI_BUILD_ARGS[@]}" \
         --label "bundle.hash=${BUNDLE_HASH}" \
         -t "myapp:dev-${BUNDLE_HASH}" \
         -t myapp:dev \
@@ -65,6 +72,7 @@ if [[ "${BUILD_TARGET}" == "runtime" || "${BUILD_TARGET}" == "all" ]]; then
     echo "==> Building runtime image (myapp:runtime-${BUNDLE_HASH})..."
     podman build \
         --target runtime \
+        "${UBI_BUILD_ARGS[@]}" \
         --label "bundle.hash=${BUNDLE_HASH}" \
         -t "myapp:runtime-${BUNDLE_HASH}" \
         -t myapp:runtime \

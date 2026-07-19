@@ -1,5 +1,10 @@
 .PHONY: help status bundle dev runtime all test-load-dev test-load-runtime test-full clean
 
+# Optional: override the UBI base image to target a different RHEL/UBI version.
+# Default is UBI9 (set in Containerfile). Example:
+#   make bundle UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10
+UBI_IMAGE ?=
+
 # Default target - show help
 help: ## Show this help message
 	@echo "Available targets:"
@@ -12,16 +17,16 @@ status: ## Check status of bundles and images
 	@./scripts/status.sh
 
 bundle: ## Generate CPAN bundle from cpanfile.snapshot
-	@./scripts/bundle-create.sh bundle
+	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/bundle-create.sh bundle
 
 dev: ## Build the development image (myapp:dev)
-	@./scripts/build-image.sh dev
+	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/build-image.sh dev
 
 runtime: ## Build the runtime image (myapp:runtime)
-	@./scripts/build-image.sh runtime
+	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/build-image.sh runtime
 
 all: bundle ## Generate bundle and build both dev and runtime images
-	@./scripts/build-image.sh all
+	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/build-image.sh all
 
 test-load-dev: ## Quick test: verify all Perl libraries can be loaded in dev image
 	@./scripts/test-load-modules.sh dev
