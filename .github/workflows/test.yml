@@ -57,8 +57,8 @@ jobs:
           mkdir -p /tmp/work-orig /tmp/perl-install
           tar xzf /tmp/cpan-bundle.tar.gz -C /tmp/work-orig
           rm /tmp/work-orig/cpanfile.snapshot
-          cpm install -L /tmp/perl-install \
-            --resolver "02packages,file:///tmp/work-orig/vendor/cache"
+          cd /tmp/work-orig && cpm install -L /tmp/perl-install \
+            --resolver "02packages,file://$PWD/vendor/cache"
 
       - name: Verify modules load from bundle
         run: PERL5LIB=/tmp/perl-install/lib/perl5 perl tests/integration/test-load.pl
@@ -83,8 +83,8 @@ jobs:
           mkdir -p /tmp/work-updated /tmp/perl-install-updated
           tar xzf /tmp/cpan-bundle-updated.tar.gz -C /tmp/work-updated
           rm /tmp/work-updated/cpanfile.snapshot
-          cpm install -L /tmp/perl-install-updated \
-            --resolver "02packages,file:///tmp/work-updated/vendor/cache"
+          cd /tmp/work-updated && cpm install -L /tmp/perl-install-updated \
+            --resolver "02packages,file://$PWD/vendor/cache"
 
       - name: Verify modules load from updated bundle
         run: PERL5LIB=/tmp/perl-install-updated/lib/perl5 perl tests/integration/test-load.pl
