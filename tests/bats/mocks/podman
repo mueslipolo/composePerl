@@ -19,11 +19,6 @@ case "$1" in
     ;;
   image)
     if [[ "$2" == "exists" ]]; then
-      # Never report carton-runner as existing — avoids a `local` outside-function
-      # bug in status.sh line ~124 that would fire if this returned 0.
-      if [[ "$3" == *"carton-runner"* ]]; then
-        exit 1
-      fi
       exit "${PODMAN_IMAGE_EXISTS_RC:-0}"
     fi
     ;;

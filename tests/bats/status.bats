@@ -90,6 +90,18 @@ make_bundle() {
   [ "$status" -eq 1 ]
 }
 
+# ── carton-runner present ─────────────────────────────────────────────────────
+
+@test "status.sh reports carton-runner when it exists" {
+  hash=$(make_snapshot)
+  make_bundle "$hash"
+  export PODMAN_IMAGE_EXISTS_RC=0
+  export PODMAN_BUNDLE_HASH="$hash"
+  run_script
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"carton-runner"* ]]
+}
+
 # ── No git repo ───────────────────────────────────────────────────────────────
 
 @test "status.sh does not crash when run outside a git repo" {
