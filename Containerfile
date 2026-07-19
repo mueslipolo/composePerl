@@ -206,6 +206,13 @@ COPY bundles/bundle-latest.tar.gz ./cpan-bundle.tar.gz
 
 # Extract bundle and install dependencies with cpm (offline)
 # Install to dedicated location /opt/cpan-modules for explicit, predictable copying
+# NOTE: cpanfile.snapshot is intentionally removed here. cpm resolves against the
+# local vendor/cache mirror built by `carton bundle`, which contains ONLY the exact
+# distributions pinned in the snapshot at bundle-creation time — so cpm has no other
+# version to resolve to and effectively reproduces the snapshot's pins. If vendor/cache
+# is ever regenerated to include multiple versions of a distribution, this determinism
+# guarantee breaks. Do not remove this without an explicit lock mechanism in its place.
+
 # hadolint ignore=DL3003
 RUN tar xzf cpan-bundle.tar.gz \
     && rm cpanfile.snapshot \
