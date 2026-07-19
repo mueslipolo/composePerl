@@ -4,7 +4,7 @@ Complete multi-stage Podman/Docker workflow for building Perl applications with 
 
 ## Key Features
 
-- **Fully Offline Builds**: Once bundle is generated, builds work without internet access
+- **Offline CPAN installs**: once a bundle is generated, Perl module installation requires no internet access. Note: the OS-level package installs (`microdnf`) in `perl-src`, `system-libs`, and `perl-buildbase` still require network access or a local package mirror unless those are also vendored.
 - **Deterministic Dependencies**: Bundle hash based on `cpanfile.snapshot` ensures reproducibility
 - **Version Traceability**: Images tagged with bundle hash for full dependency lineage
 - **Minimal Runtime**: Production image contains no compilers, build tools, or Carton
@@ -39,6 +39,7 @@ make runtime   # Build runtime image only
 ```
 
 Images are tagged with bundle hash labels:
+
 - `myapp:dev-<hash>` and `myapp:dev`
 - `myapp:runtime-<hash>` and `myapp:runtime`
 
@@ -55,6 +56,7 @@ make test-full MODULE=DBI         # Test single module
 ```
 
 **Note:**
+
 - Full test suites only run on `dev` image (runtime lacks build tools)
 - Module loading tests work on both dev and runtime
 
@@ -90,6 +92,7 @@ make status
 ```
 
 Shows:
+
 - Current cpanfile.snapshot hash and git status
 - Bundle existence and version alignment
 - Image status with bundle hash labels
@@ -119,6 +122,7 @@ make test-full MODULE=DBI         # Test single module (sequential)
 ```
 
 **Features:**
+
 - Runs `cpanm --test-only --verbose` for each module
 - Saves timestamped reports to `test-reports/` directory
 - Summary report shows pass/fail/skip counts
@@ -198,47 +202,59 @@ graph TD
 ### Stage Flow Explained
 
 **Extraction Stages (BusyBox ~1.5MB):**
+
 - `oracle-client` → Extracts Oracle Instant Client runtime libraries
 - `oracle-sdk` → Extracts Oracle SDK headers for DBD::Oracle compilation
 
 **Foundation Stage (UBI9-minimal):**
+
 - `perl-src` → Compiles Perl from source
 - `system-libs` → Shared base with Perl + runtime libraries (used by both dev & production)
 
 **Build Stages:**
+
 - `perl-buildbase` → Extends system-libs with build tools
 - `carton-runner` → Generates CPAN bundle (Carton isolated here)
 - `perl-modules` → Installs all CPAN modules once (DRY principle)
 
 **Final Images:**
+
 - `perl-dev` → Full development environment with build tools (copies modules from perl-modules)
 - `runtime` → Minimal production image (copies modules from perl-modules, no build tools)
 
 ### Stage Details
 
 #### Stage 1: perl-src (UBI9-minimal)
+
 **Purpose:** Compile Perl from source with custom configuration
+
 - Compiles Perl 5.28.1 with thread support (`-Dusethreads`)
 - Builds shared Perl library (`-Duseshrplib`)
 - Installs to `/opt/perl`
 - Source downloaded to `artifacts/perl-${VERSION}.tar.gz`
 
 #### Stage 2: oracle-client (BusyBox ~1.5MB)
+
 **Purpose:** Extract Oracle Instant Client runtime libraries
+
 - Uses minimal BusyBox image (unzip utility only)
 - Extracts `instantclient-basiclite*.zip` → runtime shared libraries
 - Base layer discarded; only extracted files (`/opt/oracle/instantclient`) copied forward
 - **Layer optimization:** Zip file never reaches final images
 
 #### Stage 3: oracle-sdk (BusyBox ~1.5MB)
+
 **Purpose:** Extract Oracle SDK headers for DBD::Oracle compilation
+
 - Uses minimal BusyBox image (unzip utility only)
 - Extracts `instantclient-sdk*.zip` → SDK headers
 - Only SDK directory (`/opt/oracle/instantclient-sdk`) copied to perl-buildbase
 - **Critical for layer optimization:** Prevents ~80MB zip from polluting dev image layers
 
 #### Stage 4: system-libs (UBI9-minimal)
+
 **Purpose:** Shared runtime foundation for both dev and production
+
 - Copies compiled Perl from `perl-src`
 - Copies Oracle Instant Client libraries from `oracle-client` (basiclite only, no SDK)
 - Installs runtime system libraries:
@@ -251,7 +267,9 @@ graph TD
 - **Guarantees identical runtime environment** between dev and production
 
 #### Stage 5: perl-buildbase (extends system-libs)
+
 **Purpose:** Add build environment for compiling XS modules
+
 - Inherits all runtime libraries from `system-libs`
 - Installs build tools: `gcc`, `make`, `perl-core`, `perl-devel`
 - Installs development headers (`*-devel` packages matching runtime libs)
@@ -259,7 +277,9 @@ graph TD
 - Used for: compiling XS modules, running CPAN tests, building bundles
 
 #### Stage 6: carton-runner (extends perl-buildbase)
+
 **Purpose:** Generate offline CPAN dependency bundle
+
 - Installs `cpanm` (fatpacked) and Carton
 - Runs `carton install --deployment` to lock dependencies
 - Runs `carton bundle` to create offline CPAN mirror
@@ -267,7 +287,9 @@ graph TD
 - **Carton isolation:** Carton only exists in this stage (not in dev or runtime)
 
 #### Stage 7: perl-modules (extends perl-buildbase)
+
 **Purpose:** Install all CPAN modules once (single source of truth)
+
 - Extends `perl-buildbase` (needs build tools for XS modules)
 - Extracts CPAN bundle from `bundles/bundle-latest.tar.gz`
 - Installs all dependencies offline using `cpm` with local resolver
@@ -277,7 +299,9 @@ graph TD
 - **Layer optimization:** Provides clean source without build artifacts
 
 #### Stage 8: perl-dev (extends perl-buildbase)
+
 **Purpose:** Development image with build tools
+
 - Inherits build tools from `perl-buildbase` (gcc, make, etc.)
 - **Copies** installed modules from `perl-modules` stage (no installation!)
 - Includes dependency files for reference (`cpanfile`, `cpanfile.snapshot`)
@@ -288,7 +312,9 @@ graph TD
 - **No zip files** thanks to BusyBox extraction stages
 
 #### Stage 9: runtime (extends system-libs)
+
 **Purpose:** Minimal production image
+
 - Inherits from `system-libs` (clean runtime base, no build tools)
 - **Copies** installed modules from `perl-modules` stage (not perl-dev!)
 - **Layer efficiency:** Copies from clean source without build tool bloat
@@ -360,10 +386,10 @@ graph TD
 ### Adding New Dependencies
 
 1. Edit `cpanfile` to add new modules
-2. Regenerate bundle: `make bundle`
-3. Rebuild images: `make all`
-4. Quick test: `make test-load`
-5. Full test (optional): `make test-full`
+1. Regenerate bundle: `make bundle`
+1. Rebuild images: `make all`
+1. Quick test: `make test-load`
+1. Full test (optional): `make test-full`
 
 The new bundle will have a different hash, ensuring full traceability.
 
@@ -382,6 +408,7 @@ Use the `bundle-create.sh` script to update to the latest versions:
 ```
 
 After updating, regenerate the bundle:
+
 ```bash
 make bundle
 ```
@@ -402,6 +429,7 @@ requires 'DBI', '>= 1.640, < 2.0';
 ```
 
 Then update the snapshot and regenerate the bundle:
+
 ```bash
 ./scripts/bundle-create.sh update --module DBI
 make bundle
@@ -414,10 +442,10 @@ make bundle
 When `make test-full` fails:
 
 1. Check the summary output for failed module list
-2. Review detailed failure logs in `test-reports/full-TIMESTAMP-details/`
-3. Test individual module: `make test-full MODULE=FailedModule`
-3. The detail report contains **only failed tests** with full verbose output
-4. Configure problematic modules in `tests/test-config.conf`:
+1. Review detailed failure logs in `test-reports/full-TIMESTAMP-details/`
+1. Test individual module: `make test-full MODULE=FailedModule`
+1. The detail report contains **only failed tests** with full verbose output
+1. Configure problematic modules in `tests/test-config.conf`:
    - Skip tests: `skip_test = yes`
    - Set environment: `env.VAR_NAME = value`
    - Use custom command: `test_command = ...`
@@ -441,8 +469,8 @@ env.LD_LIBRARY_PATH = /opt/oracle/instantclient
 ### Changing Perl Version
 
 1. Download new Perl source tarball to `artifacts/`
-2. Edit `Containerfile` and change: `ARG PERL_VERSION=5.38.2`
-3. Rebuild: `make bundle && make all`
+1. Edit `Containerfile` and change: `ARG PERL_VERSION=5.38.2`
+1. Rebuild: `make bundle && make all`
 
 ## Technical Details
 
@@ -505,11 +533,13 @@ This ensures builds work completely offline once the bundle is generated.
 ```
 
 **Causes**:
+
 - Module failed to install during build
 - Missing system library dependency
 - Module requires compilation and dev image lacks build tools
 
 **Solution**:
+
 - Check build logs for installation errors
 - Add missing system libraries to `perl-buildbase` or `runtime` stages
 - For dev image: ensure bundle includes all dependencies
@@ -544,6 +574,7 @@ ERROR: Image myapp:dev does not exist
 ### Change Base Images
 
 Edit `FROM` directives in `Containerfile`:
+
 - Line 10: perl-src base (currently ubi9-minimal)
 - Line 42: perl-buildbase (currently ubi9)
 - Line 136: runtime (currently ubi9-minimal)
@@ -555,6 +586,7 @@ Modify the `dnf install` command in `perl-buildbase` stage (Containerfile:48-59)
 ### Configure Perl Compilation
 
 Edit `./Configure` flags in `perl-src` stage (Containerfile:30-33) for different Perl options:
+
 - `-Dusethreads` - Enable thread support
 - `-Duseshrplib` - Build shared Perl library
 - `-Dprefix=/opt/perl` - Installation directory
@@ -562,6 +594,7 @@ Edit `./Configure` flags in `perl-src` stage (Containerfile:30-33) for different
 ### Customize Test Configuration
 
 See `tests/README.md` for complete documentation on:
+
 - Skipping modules from tests
 - Setting environment variables
 - Using custom test commands
