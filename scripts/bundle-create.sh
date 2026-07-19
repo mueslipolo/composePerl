@@ -157,7 +157,7 @@ cmd_update() {
         CARTON_CMD="carton update"
     else
         echo "==> Updating ${MODULE} to latest version..."
-        CARTON_CMD="carton install ${MODULE}"
+        CARTON_CMD="carton update ${MODULE}"
     fi
 
     # Create and start container
