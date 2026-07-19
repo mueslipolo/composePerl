@@ -182,7 +182,7 @@ WORKDIR /build
 COPY cpanfile cpanfile.snapshot ./
 
 # Run Carton to install dependencies and create mirror
-RUN /opt/perl/bin/carton install --deployment \
+RUN /opt/perl/bin/carton install \
     && /opt/perl/bin/carton bundle \
     && tar czf cpan-bundle.tar.gz ./vendor cpanfile cpanfile.snapshot
 
