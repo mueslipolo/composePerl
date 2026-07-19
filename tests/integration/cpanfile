@@ -1,0 +1,4 @@
+requires 'Try::Tiny';   # pure Perl, zero deps
+requires 'Moo';         # pure Perl, non-trivial dep graph (Role::Tiny, Sub::Quote)
+requires 'JSON::XS';    # XS, tests C compilation — no system library needed
+requires 'DBD::SQLite'; # XS + libsqlite3, tests system library detection and linking
