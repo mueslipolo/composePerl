@@ -167,7 +167,7 @@ cmd_update() {
 
     # Execute carton command
     echo "==> Running: ${CARTON_CMD}"
-    if ! podman exec "${CONTAINER_ID}" bash -c "cd /app && ${CARTON_CMD}"; then
+    if ! podman exec "${CONTAINER_ID}" bash -c "cd /build && ${CARTON_CMD}"; then
         echo "ERROR: Carton command failed"
         podman stop "${CONTAINER_ID}" || true
         podman rm "${CONTAINER_ID}" || true
@@ -176,7 +176,7 @@ cmd_update() {
 
     # Extract the updated cpanfile.snapshot
     echo "==> Extracting updated cpanfile.snapshot..."
-    podman cp "${CONTAINER_ID}:/app/cpanfile.snapshot" "${CPANFILE_SNAPSHOT}"
+    podman cp "${CONTAINER_ID}:/build/cpanfile.snapshot" "${CPANFILE_SNAPSHOT}"
 
     # Clean up container
     podman stop "${CONTAINER_ID}"
