@@ -121,7 +121,7 @@ check_image() {
 
 # Check carton-runner (may not exist, that's ok)
 if podman image exists "myapp:carton-runner" 2>/dev/null; then
-    local carton_size=$(podman images --format "{{.Size}}" "myapp:carton-runner" 2>/dev/null | head -1)
+    carton_size=$(podman images --format "{{.Size}}" "myapp:carton-runner" 2>/dev/null | head -1)
     echo -e "  ${GREEN}[OK]${NC} myapp:carton-runner (size: ${carton_size})"
 fi
 
