@@ -27,10 +27,13 @@ setup_paths() {
 }
 
 build_carton_runner() {
+    local ubi_args=()
+    [[ -n "${UBI_IMAGE:-}" ]] && ubi_args=(--build-arg "UBI_IMAGE=${UBI_IMAGE}")
     echo "==> Building carton-runner stage..."
     podman build \
         --target carton-runner \
         -t myapp:carton-runner \
+        "${ubi_args[@]}" \
         -f "${CONTAINERFILE}" \
         "${PROJECT_ROOT}"
 }

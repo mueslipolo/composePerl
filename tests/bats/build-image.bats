@@ -15,6 +15,7 @@ setup() {
   cp "$REAL_SCRIPT" "$PROJECT_DIR/scripts/build-image.sh"
   export PATH="$MOCKS_DIR:$PATH"
   touch "$BATS_TEST_TMPDIR/podman.log"
+  unset UBI_IMAGE
 }
 
 run_script() {
@@ -80,4 +81,22 @@ make_bundle() {
   run_script dev
   [ "$status" -eq 0 ]
   grep -q "bundle.hash=${HASH_B}" "$BATS_TEST_TMPDIR/podman.log"
+}
+
+# ── UBI_IMAGE override ────────────────────────────────────────────────────────
+
+@test "build-image.sh passes --build-arg UBI_IMAGE when UBI_IMAGE is set" {
+  make_bundle
+  export UBI_IMAGE="registry.access.redhat.com/ubi8/ubi-minimal:8.10"
+  run_script dev
+  [ "$status" -eq 0 ]
+  grep -q -- "--build-arg UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10" \
+    "$BATS_TEST_TMPDIR/podman.log"
+}
+
+@test "build-image.sh omits --build-arg UBI_IMAGE when UBI_IMAGE is not set" {
+  make_bundle
+  run_script dev
+  [ "$status" -eq 0 ]
+  ! grep -q -- "--build-arg UBI_IMAGE" "$BATS_TEST_TMPDIR/podman.log"
 }

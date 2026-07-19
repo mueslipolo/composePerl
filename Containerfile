@@ -3,13 +3,16 @@
 # 9-stage build: perl-src → oracle-client → oracle-sdk → system-libs → perl-buildbase → carton-runner → perl-modules → perl-dev → runtime
 # See README.md for detailed architecture documentation and Mermaid diagrams
 
-# Build argument for Perl version
+# Build arguments
 ARG PERL_VERSION=5.42.2
+# Override UBI_IMAGE to target a different RHEL/UBI major version at build time.
+# Example: --build-arg UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10
+ARG UBI_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.6
 
 # ============================================================================
 # Stage 1/9: perl-src - Compile Perl from source
 # ============================================================================
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.6 AS perl-src
+FROM ${UBI_IMAGE} AS perl-src
 
 ARG PERL_VERSION
 
@@ -78,7 +81,7 @@ RUN unzip -o -q /tmp/instantclient-sdk*.zip \
 # This stage is the shared foundation for both dev and runtime images.
 # Contains ONLY runtime libraries (no build tools, no -devel packages).
 # Ensures dev and runtime have identical runtime dependencies.
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.6 AS system-libs
+FROM ${UBI_IMAGE} AS system-libs
 
 # Copy compiled Perl from previous stage
 COPY --from=perl-src /opt/perl /opt/perl
