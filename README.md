@@ -8,8 +8,8 @@ Complete multi-stage Podman/Docker workflow for building Perl applications with 
 - **Deterministic Dependencies**: Bundle hash based on `cpanfile.snapshot` ensures reproducibility
 - **Version Traceability**: Images tagged with bundle hash for full dependency lineage
 - **Minimal Runtime**: Production image contains no compilers, build tools, or Carton
-- **Comprehensive Testing**: Quick smoke tests and full CPAN test suites
-- **Flexible Test Configuration**: Per-module test customization with environment variables and custom commands
+- **Multi-RHEL targeting**: Build for any UBI version (8, 9, 10) via a single `UBI_IMAGE` build arg — UBI9 by default
+- **Comprehensive Testing**: bats unit tests, end-to-end Carton→cpm integration tests, and container-level module smoke tests
 
 ## Quick Start
 
@@ -42,6 +42,12 @@ Images are tagged with bundle hash labels:
 
 - `myapp:dev-<hash>` and `myapp:dev`
 - `myapp:runtime-<hash>` and `myapp:runtime`
+
+To target a different RHEL/UBI version (see [Targeting Different RHEL Versions](#targeting-different-rhelubi-versions)):
+
+```bash
+make all UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10
+```
 
 ### 4. Test Libraries
 
@@ -83,6 +89,13 @@ make test-full MODULE=name    # Full: run CPAN test suite for single module
 make clean                    # Remove images (bundles are preserved)
 ```
 
+All build targets accept an optional `UBI_IMAGE` variable to override the base OS:
+
+```bash
+make bundle UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10
+make all    UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10
+```
+
 ### Checking Status
 
 The `status` target provides a comprehensive view with color-coded output:
@@ -98,73 +111,182 @@ Shows:
 - Image status with bundle hash labels
 - Recommended commands to sync everything
 
+## Typical Use Cases
+
+### First-time setup
+
+Download the pre-built artifacts (Oracle Instant Client zips, Perl source tarball, cpanm and cpm fatpacks) into `artifacts/`, then:
+
+```bash
+make bundle    # Build carton-runner image, resolve all CPAN deps, create bundle
+make all       # Build dev + runtime images from the bundle
+make status    # Verify everything is aligned
+```
+
+### Update a single module to latest
+
+Bumps one module's entry in `cpanfile.snapshot` to the latest version satisfying `cpanfile`, leaving all other locked versions unchanged:
+
+```bash
+./scripts/bundle-create.sh update --module DBI
+make bundle    # Rebuild bundle from updated snapshot
+make all       # Rebuild images
+```
+
+The `update --module` command uses `carton update MODULE`, not `carton install` — the latter is a no-op if the snapshot already satisfies the cpanfile requirement.
+
+### Update all modules to latest
+
+```bash
+./scripts/bundle-create.sh update --all
+make bundle
+make all
+```
+
+### Add a new module
+
+1. Add `requires 'Module::Name';` to `cpanfile`
+1. Run `make bundle` — Carton resolves and locks the new module and its deps
+1. Run `make all` to rebuild images
+
+The new bundle will have a different hash (the snapshot changed), ensuring full traceability.
+
+### Pin a module to a specific version
+
+Edit `cpanfile` before updating:
+
+```perl
+requires 'DBI', '== 1.643';       # exact version
+requires 'DBI', '>= 1.643';       # minimum version
+requires 'DBI', '>= 1.640, < 2.0'; # version range
+```
+
+Then update the snapshot and rebuild:
+
+```bash
+./scripts/bundle-create.sh update --module DBI
+make bundle && make all
+```
+
+### Target a different RHEL/UBI version
+
+XS modules (DBD::Oracle, DBD::Pg, JSON::XS, etc.) are compiled against the glibc and OpenSSL of the base image. If production servers run a different RHEL major version, build with the matching UBI image so the compiled `.so` files load correctly:
+
+```bash
+# Build for RHEL 8 hosts (glibc 2.28, OpenSSL 1.1.1)
+make bundle UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10
+make all    UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10
+
+# Build for RHEL 9 hosts (default — glibc 2.34, OpenSSL 3.0)
+make bundle
+make all
+
+# Build for RHEL 10 hosts (glibc 2.39+, OpenSSL 3.2)
+make bundle UBI_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.0
+make all    UBI_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.0
+```
+
+The `UBI_IMAGE` arg controls the base for `perl-src` and `system-libs` stages; all downstream stages inherit transitively.
+
+### Run the test suite
+
+```bash
+# Shell-level unit tests (no containers needed, runs in seconds)
+bats tests/bats/
+
+# End-to-end Carton→cpm pipeline test (downloads from CPAN, ~3 min)
+# This is also run by CI on every push
+cd tests/integration && carton install && carton bundle
+# ... see tests/README.md for full steps
+
+# Container-level module smoke test (requires built images)
+make test-load-dev
+make test-load-runtime
+
+# Full CPAN test suites inside the dev container
+make test-full
+make test-full MODULE=DBI    # single module
+```
+
 ## Testing System
 
-### Quick Smoke Tests
+The repo has three testing layers. See `tests/README.md` for full details.
 
-Fast module loading test to verify all dependencies are installed:
+### Layer 1 — Shell unit tests (bats)
 
-```bash
-make test-load    # Test dev image (~5 seconds)
-```
-
-Uses `tests/module-load-test.pl` to attempt loading each module from cpanfile.
-
-**Note:** Only runs on `dev` image, as `runtime` lacks build tools for testing.
-
-### Full Test Suites
-
-Comprehensive testing that runs complete CPAN test suites for all modules:
+Fast, no containers, no Oracle artifacts required. Mocks `podman` to assert on the exact command strings the scripts produce.
 
 ```bash
-make test-full                    # Full tests (parallel, ~5-10 minutes)
-make test-full MODULE=DBI         # Test single module (sequential)
+bats tests/bats/       # runs all 37 tests, typically <10 seconds
 ```
 
-**Features:**
+Covers: `bundle-create.sh` arg parsing, carton subcommand correctness, workdir correctness (regression guards for historical bugs), `build-image.sh` target routing and UBI_IMAGE passthrough, `status.sh` exit-code paths, project-structure smoke tests.
 
-- Runs `cpanm --test-only --verbose` for each module
-- Saves timestamped reports to `test-reports/` directory
-- Summary report shows pass/fail/skip counts
-- Detail reports vary by mode:
-  - **Full test run**: One `.log` file per **failed** module only
-  - **Single module**: Always generates a `.log` file with full output, even on success
+Run in CI on every push and PR.
+
+### Layer 2 — End-to-end Carton→cpm integration test
+
+Exercises the full dependency pipeline with real CPAN downloads, no containers. Uses a minimal `cpanfile` (4 modules: Try::Tiny, Moo, JSON::XS, DBD::SQLite) with intentionally old pinned versions to validate that `carton update MODULE` is scoped to the requested module and does not update bystanders.
+
+```
+tests/integration/
+├── cpanfile              # 4 modules, no version pins
+├── cpanfile.snapshot     # Try::Tiny pinned to 0.30, DBD::SQLite to 1.74
+├── test-load.pl          # loads all 4 modules, prints versions
+└── test-load-updated.pl  # same, but asserts Try::Tiny VERSION > 0.30
+```
+
+Run by the `integration` CI job on every push and PR (~3 min). Steps mirror the production pipeline exactly:
+
+1. `carton install` — downloads snapshot-pinned versions from CPAN
+1. `carton bundle` — builds offline `vendor/cache`
+1. `tar czf` — creates bundle tarball (same as `bundle-create.sh`)
+1. `cpm install --resolver 02packages,file://vendor/cache` — offline install (same as `perl-modules` Containerfile stage, including the `rm cpanfile.snapshot` step)
+1. Module load verification
+1. `carton update Try::Tiny` — asserts snapshot entry changed, DBD::SQLite entry unchanged
+1. Re-bundle + re-install + load verification from updated bundle
+
+### Layer 3 — Container module smoke tests
+
+Requires built images. Verifies every module in `cpanfile` actually loads inside the container.
+
+```bash
+make test-load-dev       # Quick: all modules load in dev image (~5 sec)
+make test-load-runtime   # Quick: all modules load in runtime image
+make test-full           # Full: run CPAN test suites (parallel, ~5-10 min)
+make test-full MODULE=DBI  # Single module test
+```
+
+Full test suites only run on the `dev` image (runtime lacks build tools). Reports saved to `test-reports/` with timestamps; detail logs generated for failed modules only.
 
 ### Test Configuration
 
-Configure module-specific test behavior in `tests/test-config.conf`:
+Configure per-module behaviour in `tests/test-config.conf`:
 
 ```ini
 [ModuleName]
-skip_load = yes|no          # Skip in quick smoke test
+skip_load = yes|no          # Skip in smoke test
 skip_test = yes|no          # Skip in full CPAN test suite
-reason = text               # Why skipping (shows in reports)
-env.VAR_NAME = value        # Set environment variable before testing
-test_command = command      # Custom test command (overrides default)
+reason = text               # Displayed in reports
+env.VAR_NAME = value        # Set env before testing
+test_command = command      # Override default cpanm invocation
 ```
 
-**Examples:**
+Examples:
 
 ```ini
-# Skip build-time dependencies
 [Devel::CheckLib]
 skip_load = yes
 skip_test = yes
 reason = Build-time only dependency
 
-# Set environment for database drivers
 [DBD::Oracle]
 env.ORACLE_HOME = /opt/oracle/instantclient
 env.LD_LIBRARY_PATH = /opt/oracle/instantclient
-reason = Requires Oracle client libraries
-
-# Use custom test command for problematic modules
-[Problem::Module]
-test_command = cpanm --test-only --force Problem::Module
-reason = Some tests are flaky but module works
+reason = Requires Oracle environment
 ```
 
-See `tests/README.md` for complete documentation.
+See `tests/README.md` for the full format reference.
 
 ## Architecture
 
@@ -365,20 +487,34 @@ graph TD
 │   ├── status.sh              # Bundle and image status checker
 │   ├── test-load-modules.sh   # Quick module smoke test runner
 │   └── test-run-suites.sh     # Full CPAN test suite runner
-├── tests/                     # Test configuration and scripts
-│   ├── test-config.conf       # Module test configuration
+├── tests/
+│   ├── bats/                  # Shell-level unit tests (bats-core)
+│   │   ├── mocks/
+│   │   │   └── podman         # Mock podman that logs invocations
+│   │   ├── bundle-create.bats # Tests for bundle-create.sh
+│   │   ├── build-image.bats   # Tests for build-image.sh
+│   │   ├── status.bats        # Tests for status.sh
+│   │   └── project-structure.bats  # File/permission smoke tests
+│   ├── integration/           # End-to-end Carton→cpm pipeline test
+│   │   ├── cpanfile           # Minimal 4-module test deps
+│   │   ├── cpanfile.snapshot  # Pinned versions (intentionally old)
+│   │   ├── test-load.pl       # Module load verification
+│   │   └── test-load-updated.pl  # Post-update load + version assertion
+│   ├── test-config.conf       # Per-module container test configuration
 │   ├── TestConfig.pm          # Configuration parser
-│   ├── module-load-test.pl    # Quick smoke test script
-│   ├── test-suite-runner.pl   # Full test suite runner
+│   ├── module-load-test.pl    # Container smoke test script
+│   ├── test-suite-runner.pl   # Full CPAN test suite runner
 │   └── README.md              # Test system documentation
+├── .github/
+│   └── workflows/
+│       └── test.yml           # CI: bats + integration jobs
 ├── bundles/                   # Generated CPAN bundles
 │   ├── bundle-<hash>.tar.gz   # Content-addressed bundles
 │   └── bundle-latest.tar.gz   # Symlink to latest bundle
-└── test-reports/              # Test result reports (gitignored)
+└── test-reports/              # Container test reports (gitignored)
     ├── dev-TIMESTAMP-summary.txt
     └── dev-TIMESTAMP-details/
-        ├── Module1.log
-        └── Module2.log
+        └── Module.log
 ```
 
 ## Daily Workflow
@@ -468,8 +604,8 @@ env.LD_LIBRARY_PATH = /opt/oracle/instantclient
 
 ### Changing Perl Version
 
-1. Download new Perl source tarball to `artifacts/`
-1. Edit `Containerfile` and change: `ARG PERL_VERSION=5.38.2`
+1. Download the new Perl source tarball to `artifacts/` (e.g. `perl-5.42.2.tar.gz`)
+1. Edit `Containerfile` and change `ARG PERL_VERSION=5.42.2` to the new version
 1. Rebuild: `make bundle && make all`
 
 ## Technical Details
@@ -494,7 +630,7 @@ This ensures builds work completely offline once the bundle is generated.
 
 ### Runtime Image
 
-- Based on `ubi9-minimal` for smallest footprint
+- Based on the `UBI_IMAGE` base (default: `ubi9/ubi-minimal`) for smallest footprint
 - Includes only runtime system libraries (no gcc, make, etc.)
 - Runs as non-root user `appuser` (UID 1001)
 - Contains only Perl installation and application code
@@ -571,32 +707,44 @@ ERROR: Image myapp:dev does not exist
 
 ## Advanced Customization
 
-### Change Base Images
+### Targeting Different RHEL/UBI Versions
 
-Edit `FROM` directives in `Containerfile`:
+The `UBI_IMAGE` build argument controls the base OS for the `perl-src` and `system-libs` stages. All downstream stages inherit transitively, so a single arg retargets the entire build — compiled Perl, all XS modules, and the runtime image.
 
-- Line 10: perl-src base (currently ubi9-minimal)
-- Line 42: perl-buildbase (currently ubi9)
-- Line 136: runtime (currently ubi9-minimal)
+```bash
+# RHEL 8 / UBI 8 (glibc 2.28, OpenSSL 1.1.1)
+make bundle UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10
+make all    UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10
+
+# RHEL 9 / UBI 9 — default (glibc 2.34, OpenSSL 3.0)
+make bundle
+make all
+
+# RHEL 10 / UBI 10 (glibc 2.39+, OpenSSL 3.2)
+make bundle UBI_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.0
+make all    UBI_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.0
+```
+
+XS modules (DBD::Oracle, DBD::Pg, JSON::XS, etc.) are compiled against the glibc and OpenSSL of the chosen base image. Match this to the production host OS to avoid `undefined symbol` errors at runtime.
 
 ### Adjust Build Dependencies
 
-Modify the `dnf install` command in `perl-buildbase` stage (Containerfile:48-59) to add/remove build dependencies.
+Modify the `microdnf install` command in the `perl-buildbase` stage to add or remove system library build headers.
 
 ### Configure Perl Compilation
 
-Edit `./Configure` flags in `perl-src` stage (Containerfile:30-33) for different Perl options:
+Edit the `./Configure` flags in the `perl-src` stage for different Perl options:
 
-- `-Dusethreads` - Enable thread support
-- `-Duseshrplib` - Build shared Perl library
-- `-Dprefix=/opt/perl` - Installation directory
+- `-Dusethreads` — enable iThreads (adds per-call overhead; only set if the app uses threads)
+- `-Duseshrplib` — build shared Perl library
+- `-Dprefix=/opt/perl` — installation path
 
 ### Customize Test Configuration
 
-See `tests/README.md` for complete documentation on:
+See `tests/README.md` for the full format reference on:
 
-- Skipping modules from tests
-- Setting environment variables
+- Skipping modules from the container smoke test or full CPAN suites
+- Setting per-module environment variables
 - Using custom test commands
 - Understanding test report format
 
