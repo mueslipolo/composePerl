@@ -1,0 +1,22 @@
+# Curated cpanfile for the container-build test suite.
+#
+# Not a subset of production. Each entry exercises a distinct build-mechanism
+# case the 4-stage Containerfile relies on. If a module is added here, it must
+# earn its slot by covering something none of the others do — otherwise CI just
+# gets slower without adding coverage.
+#
+# See tests/container-build/README.md for the coverage rationale per module.
+
+requires "Try::Tiny";          # pure Perl, zero deps — baseline smoke
+requires "Moo";                # pure Perl transitive dep graph (Role::Tiny, Sub::Quote)
+requires "JSON::XS";           # XS, no system lib — pure C against libperl
+requires "Cpanel::JSON::XS";   # XS variant, alternate CPAN path
+requires "DBI";                # DBD family foundation
+requires "DBD::SQLite";        # XS + bundles its own SQLite
+requires "DBD::mysql", "< 5";  # XS + mariadb-connector-c-devel linkage
+                               # (5.x dropped MariaDB support; production also
+                               # pins to 4.x)
+requires "DBD::Pg";            # XS + postgresql-devel linkage
+requires "XML::LibXML";        # XS + libxml2-devel linkage
+requires "GD";                 # XS + libpng + libjpeg + freetype + gd
+requires "DBD::Oracle";        # XS + Oracle SDK — proves the Oracle path works

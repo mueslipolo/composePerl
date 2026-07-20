@@ -118,3 +118,78 @@ jobs:
 
       - name: Verify modules load from updated bundle and Try::Tiny was upgraded
         run: PERL5LIB=/tmp/perl-install-updated/lib/perl5 perl tests/integration/test-load-updated.pl
+
+  container-build:
+    # Full end-to-end Containerfile build against the curated ~11-module test
+    # cpanfile (tests/container-build/). Exercises perl-src compile, all four
+    # stages of Containerfile, Containerfile.deps, deps.sh, build-image.sh,
+    # and the Oracle Instant Client extraction path.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install podman
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y podman
+
+      - name: Cache artifacts/
+        uses: actions/cache@v4
+        with:
+          path: artifacts
+          # Rebuild cache whenever the fetch script (URLs or pins) changes.
+          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh') }}
+
+      - name: Fetch artifacts (skipped when cache hit)
+        run: scripts/fetch-artifacts.sh
+
+      - name: Assemble container-build workspace
+        id: workspace
+        run: echo "WORKDIR=$(bash tests/container-build/setup.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: make bundle (perl-src compile + carton install + carton bundle)
+        working-directory: ${{ steps.workspace.outputs.WORKDIR }}
+        run: make bundle
+
+      - name: make all (base + dev + runtime)
+        working-directory: ${{ steps.workspace.outputs.WORKDIR }}
+        run: make all
+
+      - name: make test-load-dev
+        working-directory: ${{ steps.workspace.outputs.WORKDIR }}
+        run: make test-load-dev
+
+      - name: make test-load-runtime
+        working-directory: ${{ steps.workspace.outputs.WORKDIR }}
+        run: make test-load-runtime
+
+      - name: Invariant checks (no build tools in runtime, non-root user, bundle-hash label)
+        working-directory: ${{ steps.workspace.outputs.WORKDIR }}
+        run: |
+          set -e
+
+          # Runtime must have no gcc/make
+          if podman run --rm myapp:runtime sh -c 'command -v gcc || command -v make' 2>/dev/null; then
+            echo "FAIL: runtime image contains build tools"
+            exit 1
+          fi
+          echo "OK: runtime has no build tools"
+
+          # Runtime must run as uid 1001
+          uid=$(podman run --rm myapp:runtime id -u)
+          if [ "$uid" != "1001" ]; then
+            echo "FAIL: runtime uid=$uid, expected 1001"
+            exit 1
+          fi
+          echo "OK: runtime runs as uid 1001"
+
+          # Bundle hash label must match cpanfile.snapshot hash
+          snapshot_hash=$(sha256sum cpanfile.snapshot | cut -c1-12)
+          image_hash=$(podman inspect myapp:runtime --format '{{index .Config.Labels "bundle.hash"}}')
+          if [ "$snapshot_hash" != "$image_hash" ]; then
+            echo "FAIL: bundle-hash label='$image_hash' != cpanfile.snapshot hash='$snapshot_hash'"
+            exit 1
+          fi
+          echo "OK: bundle-hash label matches snapshot ($image_hash)"

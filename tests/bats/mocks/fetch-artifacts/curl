@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Mock curl for fetch-artifacts.bats.
+# Parses -o <dest> and the URL, writes a synthetic payload keyed on the
+# destination filename so identical inputs across runs produce identical
+# sha256s (which lets us test idempotence).
+#
+# When FETCH_MOCK_BAD_PAYLOAD=1, writes random-per-run junk so the sha256
+# never matches the real pinned hash (used for the mismatch-failure test).
+
+set -eu
+
+dest=""
+url=""
+
+# Skip flags we don't need to interpret; capture -o and the trailing URL
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -o) dest="$2"; shift 2 ;;
+        -f|-s|-S|-L) shift ;;
+        -fsSL|-fSL|-fsS) shift ;;
+        --retry|--retry-delay) shift 2 ;;
+        --*) shift ;;
+        http*|https*) url="$1"; shift ;;
+        *) shift ;;
+    esac
+done
+
+if [[ -z "$dest" ]]; then
+    echo "curl mock: no -o destination given" >&2
+    exit 22
+fi
+
+if [[ "${FETCH_MOCK_BAD_PAYLOAD:-0}" == "1" ]]; then
+    # Random content each call so sha256 will not match any pinned value
+    head -c 32 /dev/urandom > "$dest"
+else
+    # Deterministic per-destination payload keyed on the FINAL artifact
+    # name (strip the .tmp suffix the script uses during download).
+    final_name="$(basename "$dest")"
+    final_name="${final_name%.tmp}"
+    printf 'mock-payload-for-%s\n' "$final_name" > "$dest"
+fi
+
+exit 0

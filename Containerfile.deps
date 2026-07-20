@@ -56,6 +56,12 @@ WORKDIR /build
 
 COPY cpanfile cpanfile.snapshot ./
 
-RUN /opt/perl/bin/carton install \
+# `carton install` rejects an empty snapshot file with "Could not parse snapshot
+# file: __EOF__". Empty snapshots are legitimate (e.g. the container-build test
+# workspace uses one as a placeholder for first-time resolution) — drop the
+# file so carton resolves fresh from cpanfile. A real non-empty snapshot is
+# always kept and used verbatim.
+RUN [ -s cpanfile.snapshot ] || rm -f cpanfile.snapshot; \
+    /opt/perl/bin/carton install \
     && /opt/perl/bin/carton bundle \
     && tar czf cpan-bundle.tar.gz ./vendor cpanfile cpanfile.snapshot

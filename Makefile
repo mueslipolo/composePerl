@@ -1,4 +1,4 @@
-.PHONY: help status base bundle update update-all dev runtime all test-load-dev test-load-runtime test-full clean
+.PHONY: help status base bundle update update-all dev runtime all fetch-artifacts test-load-dev test-load-runtime test-full test-container-build clean
 
 # Optional: override the UBI base image to target a different RHEL/UBI version.
 # Default is UBI9 (set in Containerfile). Example:
@@ -50,6 +50,59 @@ test-load-runtime: ## Quick test: verify all Perl libraries can be loaded in run
 
 test-full: ## Run full CPAN test suites in dev image (use MODULE=name)
 	@ ./scripts/test-run-suites.sh $(MODULE)
+
+fetch-artifacts: ## Download perl source, cpanm, cpm, and Oracle Instant Client into artifacts/
+	@./scripts/fetch-artifacts.sh
+
+test-container-build: ## Full end-to-end build + lifecycle test with curated ~11-module cpanfile
+	@set -e; \
+	WORKDIR="$$(bash tests/container-build/setup.sh)"; \
+	echo "==> container-build workspace: $$WORKDIR"; \
+	echo ""; \
+	echo "==> Phase 1: Initial bundle + image build from committed snapshot"; \
+	cd "$$WORKDIR" && UBI_IMAGE="$(UBI_IMAGE)" $(MAKE) bundle; \
+	cd "$$WORKDIR" && UBI_IMAGE="$(UBI_IMAGE)" $(MAKE) all; \
+	cd "$$WORKDIR" && $(MAKE) test-load-dev; \
+	cd "$$WORKDIR" && $(MAKE) test-load-runtime; \
+	echo ""; \
+	echo "==> Phase 2: Verify baseline pinned versions (Try::Tiny should be 0.30)"; \
+	podman run --rm -v "$$WORKDIR/test-load.pl:/tmp/test-load.pl:ro" myapp:dev \
+	    /opt/perl/bin/perl /tmp/test-load.pl --expect-try-tiny-max=0.30; \
+	echo ""; \
+	echo "==> Phase 3: Snapshot pathnames before update"; \
+	grep -E "^  [A-Za-z]" "$$WORKDIR/cpanfile.snapshot" | sort > /tmp/pathnames-before.txt; \
+	echo "   captured $$(wc -l < /tmp/pathnames-before.txt) distribution pins"; \
+	echo ""; \
+	echo "==> Phase 4: Update Try::Tiny (real carton update in carton-runner container)"; \
+	cd "$$WORKDIR" && UBI_IMAGE="$(UBI_IMAGE)" $(MAKE) update MODULE=Try::Tiny; \
+	echo ""; \
+	echo "==> Phase 5: Assert scoped update — only Try-Tiny pathname changed"; \
+	grep -E "^  [A-Za-z]" "$$WORKDIR/cpanfile.snapshot" | sort > /tmp/pathnames-after.txt; \
+	diff /tmp/pathnames-before.txt /tmp/pathnames-after.txt > /tmp/pathnames-diff.txt || true; \
+	if ! grep -q "Try-Tiny" /tmp/pathnames-diff.txt; then \
+	    echo "FAIL: Try-Tiny did not change in snapshot after 'carton update Try::Tiny'"; \
+	    cat /tmp/pathnames-diff.txt; exit 1; \
+	fi; \
+	other_changes=$$(grep -v "Try-Tiny" /tmp/pathnames-diff.txt | grep -E "^[<>]" || true); \
+	if [ -n "$$other_changes" ]; then \
+	    echo "FAIL: carton update Try::Tiny changed distributions other than Try-Tiny:"; \
+	    echo "$$other_changes"; exit 1; \
+	fi; \
+	echo "   OK: only Try-Tiny changed, all other pins intact"; \
+	echo ""; \
+	echo "==> Phase 6: Rebuild bundle + images from updated snapshot"; \
+	rm -f "$$WORKDIR/bundles/bundle-latest.tar.gz" "$$WORKDIR"/bundles/bundle-*.tar.gz; \
+	podman rmi -f myapp:carton-runner myapp:dev myapp:runtime 2>/dev/null || true; \
+	cd "$$WORKDIR" && UBI_IMAGE="$(UBI_IMAGE)" $(MAKE) bundle; \
+	cd "$$WORKDIR" && UBI_IMAGE="$(UBI_IMAGE)" $(MAKE) all; \
+	echo ""; \
+	echo "==> Phase 7: Verify upgraded modules load and Try::Tiny > 0.30"; \
+	cd "$$WORKDIR" && $(MAKE) test-load-dev; \
+	cd "$$WORKDIR" && $(MAKE) test-load-runtime; \
+	podman run --rm -v "$$WORKDIR/test-load.pl:/tmp/test-load.pl:ro" myapp:dev \
+	    /opt/perl/bin/perl /tmp/test-load.pl --expect-try-tiny-min=0.31; \
+	echo ""; \
+	echo "==> ALL PHASES PASSED"
 
 clean: ## Remove images (bundles are preserved)
 	@echo "==> Cleaning up images..."

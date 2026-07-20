@@ -78,6 +78,7 @@ podman run --rm myapp:runtime   # Production image
 ```bash
 make help                     # Show available targets with descriptions
 make status                   # Check status of bundles and images
+make fetch-artifacts          # Download perl, cpanm, cpm, and Oracle Instant Client into artifacts/
 make base                     # Build the shared base stage (myapp:base)
 make bundle                   # Generate CPAN bundle from cpanfile.snapshot
 make update MODULE=name       # Update one module in cpanfile.snapshot
@@ -89,6 +90,7 @@ make test-load-dev            # Quick: verify all modules load in dev image
 make test-load-runtime        # Quick: verify all modules load in runtime image
 make test-full                # Full: run CPAN test suites (parallel, all CPUs)
 make test-full MODULE=name    # Full: run CPAN test suite for single module
+make test-container-build     # End-to-end pipeline test against curated ~11-module cpanfile
 make clean                    # Remove images (bundles are preserved)
 ```
 
@@ -118,7 +120,15 @@ Shows:
 
 ### First-time setup
 
-Download the pre-built artifacts (Oracle Instant Client zips, Perl source tarball, cpanm and cpm fatpacks) into `artifacts/`, then:
+Populate `artifacts/` from public sources with:
+
+```bash
+make fetch-artifacts
+```
+
+This downloads (and hash-verifies) the pinned Perl source, `cpanm`, `cpm`, and Oracle Instant Client (basiclite + SDK). Idempotent — subsequent runs skip anything already present with the correct sha256. Oracle Instant Client is licensed for use but **not for redistribution** — do not publish images or artifacts containing it.
+
+Then build:
 
 ```bash
 make bundle    # Build base + carton-runner images, resolve all CPAN deps, create bundle

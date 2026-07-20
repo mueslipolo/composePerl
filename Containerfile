@@ -31,8 +31,10 @@ RUN microdnf install -y \
 WORKDIR /tmp/perl-build
 
 COPY artifacts/perl-${PERL_VERSION}.tar.gz ./
+# --no-same-owner: perl 5.42.2 upstream tarball is packaged with Windows-style
+# ownership (Administrators/steve) that rootless podman cannot chown to.
 # hadolint ignore=DL3003
-RUN tar -xzf "perl-${PERL_VERSION}.tar.gz" \
+RUN tar --no-same-owner -xzf "perl-${PERL_VERSION}.tar.gz" \
     && cd "perl-${PERL_VERSION}" \
     && ./Configure -des \
         -Dprefix=/opt/perl \

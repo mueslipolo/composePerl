@@ -18,6 +18,7 @@ Mocks `podman` with a logging stub (`tests/bats/mocks/podman`) that records ever
 | `deps.bats`              | Arg parsing, `carton update` vs `carton install` correctness, `/build` workdir, bundle hash naming, existing-bundle skip, symlink creation, UBI_IMAGE passthrough, precondition checks |
 | `build-image.bats`       | Target routing (`dev`/`runtime`/`all`), `--build-arg UBI_IMAGE` passthrough, hash extraction, missing-bundle guard                                                                     |
 | `status.bats`            | All exit-code paths (missing snapshot, missing bundle, stale symlink, hash mismatch, images missing, all-OK), carton-runner present/absent, no-git-repo safety                         |
+| `fetch-artifacts.bats`   | Arg rejection, `--help` no-download, idempotence (skips files with matching sha256), hash-mismatch failure, wrong-hash re-download                                                     |
 | `project-structure.bats` | Required files exist, scripts are executable                                                                                                                                           |
 
 ### Regression guards
@@ -184,14 +185,42 @@ reason = Flaky tests, module itself works
 
 ______________________________________________________________________
 
+## Layer 4 — End-to-end container build (`tests/container-build/`)
+
+**Runs in:** ubuntu-latest with podman installed
+**Speed:** ~10-16 minutes (perl compile dominates; artifacts/ is cached across CI runs)
+**Run with:** `make test-container-build`
+**CI job:** `container-build` (every push and PR)
+
+Builds the full production 4-stage `Containerfile` (perl-src → base → dev → runtime) plus `Containerfile.deps` against a curated ~11-module cpanfile chosen to exercise every real build-mechanism case (pure Perl, XS-no-syslib, XS-with-syslib for libsqlite3/mariadb-connector-c/libpq/libxml2/libpng+libjpeg+freetype+gd, DBI, DBD::Oracle). Not a subset of production — each module earns its slot by covering something the others don't.
+
+`scripts/fetch-artifacts.sh` populates `artifacts/` with the pinned Perl source, cpanm fatpack, cpm fatpack, and Oracle Instant Client (basiclite + SDK) — all from public URLs with sha256 verification. Oracle is licensed for use but not redistribution.
+
+`tests/container-build/setup.sh` assembles a `$(mktemp -d)` workspace with:
+
+- symlinks to the real `Containerfile`, `Containerfile.deps`, `Makefile`, `scripts/`, `artifacts/`
+- copies of the test-specific `cpanfile`, `app/app.pl`, `test-load.pl`
+- an empty `cpanfile.snapshot` placeholder (Carton regenerates it fresh inside `Containerfile.deps` on first `make bundle`)
+
+The CI job then runs `make bundle && make all && make test-load-dev && make test-load-runtime` inside that workspace, followed by invariant checks (no build tools in runtime, non-root uid 1001, bundle-hash label matches snapshot hash). Nothing in the real project root is touched.
+
+See `tests/container-build/README.md` for the per-module coverage rationale.
+
+______________________________________________________________________
+
+## Layer 3 — Container module tests against production cpanfile (`tests/` Perl scripts)
+
+Not wired into public CI. Requires the full 700-module production `cpanfile.snapshot` and a corresponding bundle. Run locally when validating a real production build.
+
+______________________________________________________________________
+
 ## CI overview
 
 ```
 .github/workflows/test.yml
-├── bats job        — Layer 1, <10 sec, no external deps
-└── integration job — Layer 2, ~3 min, CPAN + libsqlite3-dev
+├── bats job             — Layer 1, ~10 sec, no external deps
+├── integration job      — Layer 2, ~3 min, host-side carton→cpm pipeline (4 modules)
+└── container-build job  — Layer 4, ~10-16 min, full Containerfile build (11 modules, real Oracle)
 ```
 
-Layer 3 (container tests) is not wired into public CI because it requires Oracle
-artifacts (`artifacts/instantclient-*.zip`) that are not redistributable. Run it
-locally or in an internal CI environment that has the artifacts directory populated.
+Layer 3 (container tests against production cpanfile) is not wired into public CI — it needs the 700-module production bundle. Run it locally against a real production build.
