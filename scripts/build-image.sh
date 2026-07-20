@@ -54,7 +54,7 @@ if [[ "${BUILD_TARGET}" == "dev" || "${BUILD_TARGET}" == "all" ]]; then
     echo ""
     echo "==> Building dev image (myapp:dev-${BUNDLE_HASH})..."
     podman build \
-        --target perl-dev \
+        --target dev \
         "${UBI_BUILD_ARGS[@]}" \
         --label "bundle.hash=${BUNDLE_HASH}" \
         -t "myapp:dev-${BUNDLE_HASH}" \

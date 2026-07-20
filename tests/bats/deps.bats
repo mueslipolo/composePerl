@@ -8,13 +8,15 @@
 MOCKS_DIR="$BATS_TEST_DIRNAME/mocks"
 REAL_SCRIPT="$BATS_TEST_DIRNAME/../../scripts/deps.sh"
 REAL_CONTAINERFILE="$BATS_TEST_DIRNAME/../../Containerfile"
+REAL_CONTAINERFILE_DEPS="$BATS_TEST_DIRNAME/../../Containerfile.deps"
 
 setup() {
   export PROJECT_DIR="$BATS_TEST_TMPDIR/project"
   mkdir -p "$PROJECT_DIR/scripts" "$PROJECT_DIR/bundles"
 
-  cp "$REAL_SCRIPT"      "$PROJECT_DIR/scripts/deps.sh"
-  cp "$REAL_CONTAINERFILE" "$PROJECT_DIR/Containerfile"
+  cp "$REAL_SCRIPT"           "$PROJECT_DIR/scripts/deps.sh"
+  cp "$REAL_CONTAINERFILE"    "$PROJECT_DIR/Containerfile"
+  cp "$REAL_CONTAINERFILE_DEPS" "$PROJECT_DIR/Containerfile.deps"
 
   echo "requires 'DBI';" > "$PROJECT_DIR/cpanfile"
   echo "# snapshot"      > "$PROJECT_DIR/cpanfile.snapshot"
@@ -69,16 +71,16 @@ run_script() {
 
 # ── Contract: Containerfile WORKDIR vs script path ────────────────────────────
 
-@test "deps.sh workdir matches Containerfile carton-runner WORKDIR" {
-  cf_workdir=$(awk '/AS carton-runner/{f=1} f && /^WORKDIR/{print $2; exit}' "$REAL_CONTAINERFILE")
+@test "deps.sh workdir matches Containerfile.deps WORKDIR" {
+  cf_workdir=$(awk '/^WORKDIR/{print $2; exit}' "$REAL_CONTAINERFILE_DEPS")
   script_path=$(grep -oE "cd /[a-zA-Z0-9_-]+" "$REAL_SCRIPT" | head -1 | sed 's/cd //')
 
   [ -n "$cf_workdir" ] \
-    || ( echo "FAIL: Could not extract WORKDIR from Containerfile for carton-runner stage"; false )
+    || ( echo "FAIL: Could not extract WORKDIR from Containerfile.deps"; false )
   [ -n "$script_path" ] \
     || ( echo "FAIL: Could not extract 'cd /...' path from deps.sh"; false )
   [ "$cf_workdir" = "$script_path" ] \
-    || ( echo "DRIFT: Containerfile carton-runner WORKDIR='$cf_workdir' != deps.sh cd path='$script_path'"; false )
+    || ( echo "DRIFT: Containerfile.deps WORKDIR='$cf_workdir' != deps.sh cd path='$script_path'"; false )
 }
 
 # ── Argument parsing ──────────────────────────────────────────────────────────

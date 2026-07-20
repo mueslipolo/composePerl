@@ -22,6 +22,7 @@ BUNDLES_DIR="${PROJECT_ROOT}/bundles"
 CPANFILE="${PROJECT_ROOT}/cpanfile"
 CPANFILE_SNAPSHOT="${PROJECT_ROOT}/cpanfile.snapshot"
 CONTAINERFILE="${PROJECT_ROOT}/Containerfile"
+CONTAINERFILE_DEPS="${PROJECT_ROOT}/Containerfile.deps"
 
 setup_paths() {
     mkdir -p "${BUNDLES_DIR}"
@@ -30,12 +31,19 @@ setup_paths() {
 build_carton_runner() {
     local ubi_args=()
     [[ -n "${UBI_IMAGE:-}" ]] && ubi_args=(--build-arg "UBI_IMAGE=${UBI_IMAGE}")
-    echo "==> Building carton-runner stage..."
+
+    echo "==> Building base stage (prerequisite for Containerfile.deps)..."
     podman build \
-        --target carton-runner \
-        -t myapp:carton-runner \
+        --target base \
+        -t myapp:base \
         "${ubi_args[@]}" \
         -f "${CONTAINERFILE}" \
+        "${PROJECT_ROOT}"
+
+    echo "==> Building carton-runner from Containerfile.deps..."
+    podman build \
+        -t myapp:carton-runner \
+        -f "${CONTAINERFILE_DEPS}" \
         "${PROJECT_ROOT}"
 }
 

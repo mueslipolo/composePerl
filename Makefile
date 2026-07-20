@@ -1,4 +1,4 @@
-.PHONY: help status bundle dev runtime all test-load-dev test-load-runtime test-full clean
+.PHONY: help status base bundle update update-all dev runtime all test-load-dev test-load-runtime test-full clean
 
 # Optional: override the UBI base image to target a different RHEL/UBI version.
 # Default is UBI9 (set in Containerfile). Example:
@@ -16,8 +16,22 @@ help: ## Show this help message
 status: ## Check status of bundles and images
 	@./scripts/status.sh
 
+base: ## Build the shared base stage (myapp:base)
+	@UBI_IMAGE="$(UBI_IMAGE)" podman build --target base -t myapp:base \
+	    $(if $(UBI_IMAGE),--build-arg UBI_IMAGE=$(UBI_IMAGE),) \
+	    -f Containerfile .
+
 bundle: ## Generate CPAN bundle from cpanfile.snapshot
 	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/deps.sh bundle
+
+update: ## Update one module in cpanfile.snapshot (usage: make update MODULE=Name)
+	@if [ -z "$(MODULE)" ]; then \
+	    echo "ERROR: MODULE=name required (e.g. make update MODULE=DBI)"; exit 2; \
+	fi
+	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/deps.sh update --module $(MODULE)
+
+update-all: ## Update all modules in cpanfile.snapshot to latest satisfying cpanfile
+	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/deps.sh update --all
 
 dev: ## Build the development image (myapp:dev)
 	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/build-image.sh dev
@@ -39,5 +53,5 @@ test-full: ## Run full CPAN test suites in dev image (use MODULE=name)
 
 clean: ## Remove images (bundles are preserved)
 	@echo "==> Cleaning up images..."
-	@podman rmi -f myapp:carton-runner myapp:dev myapp:runtime 2>/dev/null || true
+	@podman rmi -f myapp:base myapp:carton-runner myapp:dev myapp:runtime 2>/dev/null || true
 	@echo "==> Clean complete (bundles preserved)"

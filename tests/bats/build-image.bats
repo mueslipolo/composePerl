@@ -43,11 +43,11 @@ make_bundle() {
 
 # ── Target routing ────────────────────────────────────────────────────────────
 
-@test "build-image.sh dev passes --target perl-dev only" {
+@test "build-image.sh dev passes --target dev only" {
   make_bundle
   run_script dev
   [ "$status" -eq 0 ]
-  grep -q -- "--target perl-dev" "$BATS_TEST_TMPDIR/podman.log"
+  grep -q -- "--target dev" "$BATS_TEST_TMPDIR/podman.log"
   ! grep -q -- "--target runtime" "$BATS_TEST_TMPDIR/podman.log"
 }
 
@@ -56,14 +56,14 @@ make_bundle() {
   run_script runtime
   [ "$status" -eq 0 ]
   grep -q -- "--target runtime" "$BATS_TEST_TMPDIR/podman.log"
-  ! grep -q -- "--target perl-dev" "$BATS_TEST_TMPDIR/podman.log"
+  ! grep -q -- "--target dev" "$BATS_TEST_TMPDIR/podman.log"
 }
 
-@test "build-image.sh all builds both perl-dev and runtime targets" {
+@test "build-image.sh all builds both dev and runtime targets" {
   make_bundle
   run_script all
   [ "$status" -eq 0 ]
-  grep -q -- "--target perl-dev" "$BATS_TEST_TMPDIR/podman.log"
+  grep -q -- "--target dev" "$BATS_TEST_TMPDIR/podman.log"
   grep -q -- "--target runtime"  "$BATS_TEST_TMPDIR/podman.log"
 }
 

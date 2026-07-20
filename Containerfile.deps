@@ -1,0 +1,61 @@
+# Containerfile.deps - Bundle regeneration workflow
+#
+# Layers Carton and the full XS build toolchain on top of myapp:base to
+# generate the offline CPAN bundle. Invoked by scripts/deps.sh for
+# `make bundle` and `make update` / `make update-all`.
+#
+# Prerequisite: myapp:base must exist locally. scripts/deps.sh builds it
+# from the main Containerfile (--target base) before invoking this file.
+
+FROM myapp:base
+
+# Build toolchain — must stay in sync with the equivalent block in the
+# `dev` stage of the main Containerfile so that XS modules resolve
+# against the same headers here as they'll compile against in dev.
+# hadolint ignore=DL3041
+RUN microdnf -y install \
+      gcc \
+      make \
+      perl-core \
+      perl-devel \
+      which \
+      util-linux \
+      findutils \
+      tar \
+      gzip \
+      unzip \
+      patch \
+      libxml2-devel \
+      libxslt-devel \
+      expat-devel \
+      freetype-devel \
+      libpng-devel \
+      libjpeg-turbo-devel \
+      gd-devel \
+      postgresql-devel \
+      mariadb-connector-c-devel \
+      openssl-devel \
+      zlib-devel \
+      bzip2-devel \
+      xz-devel \
+      subversion-devel \
+  && microdnf clean all
+
+# Oracle SDK — required so DBD::Oracle's Makefile.PL can probe headers
+# during `carton install`.
+COPY artifacts/instantclient-sdk*.zip /tmp/
+RUN unzip -o -q /tmp/instantclient-sdk*.zip -d /opt/oracle-sdk-extract \
+    && mv /opt/oracle-sdk-extract/instantclient_*/sdk /opt/oracle/instantclient/sdk \
+    && rm -rf /opt/oracle-sdk-extract /tmp/instantclient-sdk*.zip
+
+# Carton (via cpanm fatpack). Carton itself lives only in this image.
+COPY artifacts/cpanm /opt/perl/bin/cpanm
+RUN /opt/perl/bin/cpanm --notest Carton
+
+WORKDIR /build
+
+COPY cpanfile cpanfile.snapshot ./
+
+RUN /opt/perl/bin/carton install \
+    && /opt/perl/bin/carton bundle \
+    && tar czf cpan-bundle.tar.gz ./vendor cpanfile cpanfile.snapshot
