@@ -179,3 +179,54 @@ run_script() {
   [ "$status" -eq 0 ]
   ! grep -q -- "--build-arg UBI_IMAGE" "$BATS_TEST_TMPDIR/podman.log"
 }
+
+# ── Build-info stamp (Perl version + OS pairing) ──────────────────────────────
+
+@test "cmd_bundle stamps build-info with PERL_VERSION and UBI_IMAGE from Containerfile" {
+  printf "deterministic-content\n" > "$PROJECT_DIR/cpanfile.snapshot"
+  expected_hash=$(sha256sum "$PROJECT_DIR/cpanfile.snapshot" | cut -c1-12)
+  expected_perl=$(sed -n 's/^ARG PERL_VERSION=//p' "$PROJECT_DIR/Containerfile")
+  expected_ubi=$(sed -n 's/^ARG UBI_IMAGE=//p' "$PROJECT_DIR/Containerfile")
+
+  run_script bundle
+  [ "$status" -eq 0 ]
+
+  build_info="$PROJECT_DIR/bundles/bundle-${expected_hash}.build-info"
+  [ -f "$build_info" ]
+  grep -qF "PERL_VERSION=${expected_perl}" "$build_info"
+  grep -qF "UBI_IMAGE=${expected_ubi}" "$build_info"
+}
+
+@test "cmd_bundle creates bundle-latest.build-info symlink pointing to new build-info" {
+  printf "deterministic-content\n" > "$PROJECT_DIR/cpanfile.snapshot"
+  expected_hash=$(sha256sum "$PROJECT_DIR/cpanfile.snapshot" | cut -c1-12)
+
+  run_script bundle
+  [ "$status" -eq 0 ]
+  [ -L "$PROJECT_DIR/bundles/bundle-latest.build-info" ]
+  link_target=$(readlink "$PROJECT_DIR/bundles/bundle-latest.build-info")
+  [ "$link_target" = "bundle-${expected_hash}.build-info" ]
+}
+
+@test "cmd_bundle backfills build-info when bundle already exists but stamp is missing" {
+  printf "deterministic-content\n" > "$PROJECT_DIR/cpanfile.snapshot"
+  expected_hash=$(sha256sum "$PROJECT_DIR/cpanfile.snapshot" | cut -c1-12)
+  touch "$PROJECT_DIR/bundles/bundle-${expected_hash}.tar.gz"
+
+  run_script bundle
+  [ "$status" -eq 0 ]
+  # Skip path never rebuilds the bundle itself, but must still backfill the stamp.
+  [ -f "$PROJECT_DIR/bundles/bundle-${expected_hash}.build-info" ]
+  ! grep -q "^podman build" "$BATS_TEST_TMPDIR/podman.log"
+}
+
+@test "cmd_bundle stamps the overridden UBI_IMAGE, not the Containerfile default" {
+  printf "deterministic-content\n" > "$PROJECT_DIR/cpanfile.snapshot"
+  expected_hash=$(sha256sum "$PROJECT_DIR/cpanfile.snapshot" | cut -c1-12)
+  export UBI_IMAGE="registry.access.redhat.com/ubi8/ubi-minimal:8.10"
+
+  run_script bundle
+  [ "$status" -eq 0 ]
+  grep -qF "UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10" \
+    "$PROJECT_DIR/bundles/bundle-${expected_hash}.build-info"
+}

@@ -2,6 +2,15 @@
 
 Complete multi-stage Podman/Docker workflow for building Perl applications with reproducible, offline-capable dependency management using Carton.
 
+## What this repo is for
+
+Two jobs, sharing one bundle-generation engine:
+
+1. **CPAN dependency management for the legacy VM fleet.** `cpanfile` + `cpanfile.snapshot` + `make bundle` produce a hash-pinned, offline CPAN mirror. That bundle is installed onto perlbrew-managed VMs — see [`docs/vm-deployment.md`](docs/vm-deployment.md) for the install procedure, version-compatibility gate, and rollback approach.
+1. **The future containerized system**, covered by the rest of this document: the same bundle consumed by the `dev` stage below, running either as one container "as is" or eventually split into multiple components, each with its own cpanfile.
+
+Everything from here down — the Containerfile stages, `make dev`/`make runtime`, the container test layers — is purpose 2. If you're deploying to a VM instead of a container, start with `docs/vm-deployment.md`; `make bundle` is the only target from this README you still need.
+
 ## Key Features
 
 - **Offline CPAN installs**: once a bundle is generated, Perl module installation requires no internet access. Note: the OS-level package installs (`microdnf`) in the `perl-src`, `base`, and `dev` stages still require network access or a local package mirror unless those are also vendored.
@@ -547,6 +556,7 @@ env.LD_LIBRARY_PATH = /opt/oracle/instantclient
 - Bundle hash added as image label: `bundle.hash=<hash>`
 - Images tagged with bundle hash for full dependency lineage tracing
 - Bundles contain: `vendor/` directory, `cpanfile`, and `cpanfile.snapshot`
+- Each bundle has a sibling `bundle-<hash>.build-info` (symlinked as `bundle-latest.build-info`) recording the `PERL_VERSION` and `UBI_IMAGE` it was built against — compiled XS modules are ABI-bound to both, not just the Perl version. Consumed by the VM deployment gate in [`docs/vm-deployment.md`](docs/vm-deployment.md)
 
 ### Offline Installation
 

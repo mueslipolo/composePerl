@@ -28,6 +28,48 @@ setup_paths() {
     mkdir -p "${BUNDLES_DIR}"
 }
 
+# Reads ARG PERL_VERSION from Containerfile — single source of truth, same
+# pattern Makefile and fetch-artifacts.sh already use.
+read_perl_version() {
+    local version
+    version=$(sed -n 's/^ARG PERL_VERSION=//p' "${CONTAINERFILE}")
+    if [[ -z "${version}" ]]; then
+        echo "ERROR: could not read ARG PERL_VERSION from ${CONTAINERFILE}" >&2
+        exit 1
+    fi
+    echo "${version}"
+}
+
+# Resolves the UBI base image a bundle was actually built against: the
+# UBI_IMAGE env var if the caller set one (same override build_carton_runner
+# passes to podman), otherwise Containerfile's own ARG default.
+read_ubi_image() {
+    if [[ -n "${UBI_IMAGE:-}" ]]; then
+        echo "${UBI_IMAGE}"
+        return
+    fi
+    local default
+    default=$(sed -n 's/^ARG UBI_IMAGE=//p' "${CONTAINERFILE}")
+    if [[ -z "${default}" ]]; then
+        echo "ERROR: could not read ARG UBI_IMAGE from ${CONTAINERFILE}" >&2
+        exit 1
+    fi
+    echo "${default}"
+}
+
+# Stamps the build environment a bundle is only known-good against into a
+# sibling file: the Perl version AND the OS (glibc/OpenSSL via the UBI base
+# image), since compiled XS modules (DBD::Oracle, JSON::XS, ...) are ABI-bound
+# to both, not just the Perl version. KEY=VALUE so a consumer can either
+# `grep` it or `source` it directly — see docs/vm-deployment.md.
+stamp_build_env() {
+    local dest="$1"
+    {
+        echo "PERL_VERSION=$(read_perl_version)"
+        echo "UBI_IMAGE=$(read_ubi_image)"
+    } > "${dest}"
+}
+
 build_carton_runner() {
     local ubi_args=()
     [[ -n "${UBI_IMAGE:-}" ]] && ubi_args=(--build-arg "UBI_IMAGE=${UBI_IMAGE}")
@@ -69,12 +111,20 @@ cmd_bundle() {
     BUNDLE_NAME="bundle-${SNAPSHOT_HASH}.tar.gz"
     BUNDLE_PATH="${BUNDLES_DIR}/${BUNDLE_NAME}"
     BUNDLE_LATEST="${BUNDLES_DIR}/bundle-latest.tar.gz"
+    BUILD_ENV_NAME="bundle-${SNAPSHOT_HASH}.build-info"
+    BUILD_ENV_PATH="${BUNDLES_DIR}/${BUILD_ENV_NAME}"
+    BUILD_ENV_LATEST="${BUNDLES_DIR}/bundle-latest.build-info"
 
     # Check if bundle already exists
     if [[ -f "${BUNDLE_PATH}" ]]; then
         echo "==> Bundle already exists: ${BUNDLE_NAME}"
         echo "==> Updating symlink..."
         ln -sf "${BUNDLE_NAME}" "${BUNDLE_LATEST}"
+        # Backfill the stamp too — a bundle built before this feature existed
+        # would otherwise be missing it forever, since the tarball itself
+        # isn't touched on this skip path.
+        stamp_build_env "${BUILD_ENV_PATH}"
+        ln -sf "${BUILD_ENV_NAME}" "${BUILD_ENV_LATEST}"
         echo "==> Done"
         return 0
     fi
@@ -101,8 +151,14 @@ cmd_bundle() {
 
     echo "==> Bundle created: ${BUNDLE_NAME}"
 
-    # Create/update symlink to latest bundle
+    # Stamp the build environment (Perl version + OS/UBI image) this bundle
+    # is only known-good against.
+    stamp_build_env "${BUILD_ENV_PATH}"
+    echo "==> Build environment stamped: ${BUILD_ENV_NAME}"
+
+    # Create/update symlinks to latest bundle + build-info
     ln -sf "${BUNDLE_NAME}" "${BUNDLE_LATEST}"
+    ln -sf "${BUILD_ENV_NAME}" "${BUILD_ENV_LATEST}"
     echo "==> Symlink updated: bundle-latest.tar.gz -> ${BUNDLE_NAME}"
 
     # Display bundle size
