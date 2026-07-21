@@ -6,7 +6,7 @@
 # See README.md for architecture details.
 
 # Build arguments
-ARG PERL_VERSION=5.42.2
+ARG PERL_VERSION=5.28.1
 # Override UBI_IMAGE to target a different RHEL/UBI major version at build time.
 # Example: --build-arg UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10
 ARG UBI_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.6
@@ -19,6 +19,11 @@ ARG UBI_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.6
 FROM ${UBI_IMAGE} AS perl-src
 
 ARG PERL_VERSION
+
+# Optional corporate CA trust: users behind a TLS-inspecting proxy drop
+# their CA cert(s) into certs/ (gitignored). No-op otherwise.
+COPY certs/ /etc/pki/ca-trust/source/anchors/
+RUN rm -f /etc/pki/ca-trust/source/anchors/.gitkeep && update-ca-trust
 
 # hadolint ignore=DL3041
 RUN microdnf install -y \
@@ -56,6 +61,11 @@ RUN tar --no-same-owner -xzf "perl-${PERL_VERSION}.tar.gz" \
 FROM ${UBI_IMAGE} AS base
 
 COPY --from=perl-src /opt/perl /opt/perl
+
+# Optional corporate CA trust: users behind a TLS-inspecting proxy drop
+# their CA cert(s) into certs/ (gitignored). No-op otherwise.
+COPY certs/ /etc/pki/ca-trust/source/anchors/
+RUN rm -f /etc/pki/ca-trust/source/anchors/.gitkeep && update-ca-trust
 
 # hadolint ignore=DL3041
 RUN microdnf -y install \

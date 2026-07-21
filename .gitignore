@@ -6,6 +6,10 @@ artifacts/
 .carton/
 local/
 
+# User-provided corporate CA certs (never committed)
+certs/*
+!certs/.gitkeep
+
 # Test reports
 test-reports/
 .claude/

@@ -1,9 +1,13 @@
-.PHONY: help status base dev-tools bundle update update-all dev runtime all fetch-artifacts test-load-dev test-load-runtime test-full test-container-build clean
+.PHONY: help status base dev-tools bundle update update-all dev runtime all fetch-artifacts check-artifacts test-load-dev test-load-runtime test-full test-container-build clean
 
 # Optional: override the UBI base image to target a different RHEL/UBI version.
 # Default is UBI9 (set in Containerfile). Example:
 #   make bundle UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10
 UBI_IMAGE ?=
+
+# Perl version is defined once in the Containerfile; read it from there so the
+# artifact check always matches what COPY will look for.
+PERL_VERSION := $(shell sed -n 's/^ARG PERL_VERSION=//p' Containerfile)
 
 # Default target - show help
 help: ## Show this help message
@@ -16,32 +20,56 @@ help: ## Show this help message
 status: ## Check status of bundles and images
 	@./scripts/status.sh
 
-base: ## Build the shared base stage (myapp:base)
+check-artifacts: ## Verify build artifacts exist (auto-runs fetch-artifacts if missing)
+	@check() { \
+	    m=""; \
+	    [ -f "artifacts/perl-$(PERL_VERSION).tar.gz" ] || m="$$m artifacts/perl-$(PERL_VERSION).tar.gz"; \
+	    [ -f artifacts/cpanm ] || m="$$m artifacts/cpanm"; \
+	    [ -f artifacts/cpm ]   || m="$$m artifacts/cpm"; \
+	    ls artifacts/instantclient-basiclite*.zip >/dev/null 2>&1 || m="$$m artifacts/instantclient-basiclite*.zip"; \
+	    ls artifacts/instantclient-sdk*.zip      >/dev/null 2>&1 || m="$$m artifacts/instantclient-sdk*.zip"; \
+	    echo "$$m"; \
+	}; \
+	m="$$(check)"; \
+	if [ -n "$$m" ]; then \
+	    echo "==> Missing build artifacts:"; \
+	    for f in $$m; do echo "      $$f"; done; \
+	    echo "==> Running 'make fetch-artifacts' to download them..."; \
+	    $(MAKE) fetch-artifacts; \
+	    m="$$(check)"; \
+	    if [ -n "$$m" ]; then \
+	        echo "==> ERROR: artifacts still missing after fetch-artifacts:"; \
+	        for f in $$m; do echo "      $$f"; done; \
+	        exit 1; \
+	    fi; \
+	fi
+
+base: check-artifacts ## Build the shared base stage (myapp:base)
 	@UBI_IMAGE="$(UBI_IMAGE)" podman build --target base -t myapp:base \
 	    $(if $(UBI_IMAGE),--build-arg UBI_IMAGE=$(UBI_IMAGE),) \
 	    -f Containerfile .
 
-dev-tools: ## Build the dev-tools stage (myapp:dev-tools; shared by dev and Containerfile.deps)
+dev-tools: check-artifacts ## Build the dev-tools stage (myapp:dev-tools; shared by dev and Containerfile.deps)
 	@UBI_IMAGE="$(UBI_IMAGE)" podman build --target dev-tools -t myapp:dev-tools \
 	    $(if $(UBI_IMAGE),--build-arg UBI_IMAGE=$(UBI_IMAGE),) \
 	    -f Containerfile .
 
-bundle: ## Generate CPAN bundle from cpanfile.snapshot
+bundle: check-artifacts ## Generate CPAN bundle from cpanfile.snapshot
 	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/deps.sh bundle
 
-update: ## Update one module in cpanfile.snapshot (usage: make update MODULE=Name)
+update: check-artifacts ## Update one module in cpanfile.snapshot (usage: make update MODULE=Name)
 	@if [ -z "$(MODULE)" ]; then \
 	    echo "ERROR: MODULE=name required (e.g. make update MODULE=DBI)"; exit 2; \
 	fi
 	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/deps.sh update --module $(MODULE)
 
-update-all: ## Update all modules in cpanfile.snapshot to latest satisfying cpanfile
+update-all: check-artifacts ## Update all modules in cpanfile.snapshot to latest satisfying cpanfile
 	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/deps.sh update --all
 
-dev: ## Build the development image (myapp:dev)
+dev: check-artifacts ## Build the development image (myapp:dev)
 	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/build-image.sh dev
 
-runtime: ## Build the runtime image (myapp:runtime)
+runtime: check-artifacts ## Build the runtime image (myapp:runtime)
 	@UBI_IMAGE="$(UBI_IMAGE)" ./scripts/build-image.sh runtime
 
 all: bundle ## Generate bundle and build both dev and runtime images
