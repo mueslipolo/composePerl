@@ -35,6 +35,11 @@ ln -sfn "${PROJECT_ROOT}/scripts"            "${WORKDIR}/scripts"
 # artifacts/ must be a REAL directory inside the build context — podman does
 # not follow symlinks pointing outside its context. Prefer hardlinks (same-fs
 # only, essentially free) and fall back to a full copy (~90 MB) otherwise.
+# artifacts/ is gitignored, so a fresh checkout that hasn't run
+# fetch-artifacts.sh yet won't have it at all (not even empty) — mkdir -p the
+# source too, so a missing dir behaves like an empty one instead of crashing
+# `cp` under set -e before check-artifacts ever gets a chance to populate it.
+mkdir -p "${PROJECT_ROOT}/artifacts"
 mkdir -p "${WORKDIR}/artifacts"
 if ! cp -al "${PROJECT_ROOT}/artifacts/." "${WORKDIR}/artifacts/" 2>/dev/null; then
     cp -r "${PROJECT_ROOT}/artifacts/." "${WORKDIR}/artifacts/"
