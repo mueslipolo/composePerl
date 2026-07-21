@@ -32,10 +32,10 @@ build_carton_runner() {
     local ubi_args=()
     [[ -n "${UBI_IMAGE:-}" ]] && ubi_args=(--build-arg "UBI_IMAGE=${UBI_IMAGE}")
 
-    echo "==> Building base stage (prerequisite for Containerfile.deps)..."
+    echo "==> Building dev-tools stage (prerequisite for Containerfile.deps)..."
     podman build \
-        --target base \
-        -t myapp:base \
+        --target dev-tools \
+        -t myapp:dev-tools \
         "${ubi_args[@]}" \
         -f "${CONTAINERFILE}" \
         "${PROJECT_ROOT}"

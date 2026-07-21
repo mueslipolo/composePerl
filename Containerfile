@@ -1,7 +1,8 @@
 # Multi-stage Containerfile for Perl application with Carton dependency management
 #
-# 4-stage build: perl-src → base → dev → runtime
-# Bundle regeneration lives in Containerfile.deps.
+# 5-stage build: perl-src → base → dev-tools → dev → runtime
+# Bundle regeneration (Containerfile.deps) also FROMs dev-tools, so the build
+# toolchain and Oracle SDK live in exactly one place.
 # See README.md for architecture details.
 
 # Build arguments
@@ -11,7 +12,7 @@ ARG PERL_VERSION=5.42.2
 ARG UBI_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.6
 
 # ============================================================================
-# Stage 1/4: perl-src - Compile Perl from source
+# Stage 1/5: perl-src - Compile Perl from source
 # ============================================================================
 # Isolated as its own stage because Perl compile is expensive (10+ min) and
 # rarely changes — this is the cache boundary that pays for itself.
@@ -47,7 +48,7 @@ RUN tar --no-same-owner -xzf "perl-${PERL_VERSION}.tar.gz" \
 
 
 # ============================================================================
-# Stage 2/4: base - Shared runtime foundation for dev and runtime
+# Stage 2/5: base - Shared runtime foundation for dev and runtime
 # ============================================================================
 # Sole ancestor of both dev and runtime → guarantees identical runtime libraries
 # in production and development. Contains ONLY runtime libraries (no build tools,
@@ -98,12 +99,13 @@ ENV PATH="/opt/perl/bin:${PATH}" \
 
 
 # ============================================================================
-# Stage 3/4: dev - Development image (build tools + CPAN modules + app)
+# Stage 3/5: dev-tools - Build toolchain shared with Containerfile.deps
 # ============================================================================
-# Merges what used to be perl-buildbase + perl-modules + perl-dev.
-# Installs modules once into /opt/cpan-modules; the runtime stage copies from
-# this location so both images use bit-identical module builds.
-FROM base AS dev
+# Adds the full XS compile toolchain and Oracle SDK on top of base. Contains
+# NO CPAN modules and NO application code — exists purely to be the shared
+# ancestor of `dev` (which adds modules + app) and Containerfile.deps (which
+# adds Carton). Editing the toolchain package list here updates both.
+FROM base AS dev-tools
 
 # hadolint ignore=DL3041
 RUN microdnf -y install \
@@ -140,6 +142,14 @@ RUN unzip -o -q /tmp/instantclient-sdk*.zip -d /opt/oracle-sdk-extract \
     && mv /opt/oracle-sdk-extract/instantclient_*/sdk /opt/oracle/instantclient/sdk \
     && rm -rf /opt/oracle-sdk-extract /tmp/instantclient-sdk*.zip
 
+
+# ============================================================================
+# Stage 4/5: dev - Development image (dev-tools + CPAN modules + app)
+# ============================================================================
+# Installs modules once into /opt/cpan-modules; the runtime stage copies from
+# this location so both images use bit-identical module builds.
+FROM dev-tools AS dev
+
 # Install all CPAN modules offline from the pre-built bundle.
 # cpanfile.snapshot is intentionally removed before cpm runs: cpm resolves
 # against the local vendor/cache mirror (built by `carton bundle`), which
@@ -171,7 +181,7 @@ CMD ["/opt/perl/bin/perl", "app.pl"]
 
 
 # ============================================================================
-# Stage 4/4: runtime - Minimal production image
+# Stage 5/5: runtime - Minimal production image
 # ============================================================================
 # Inherits from base (clean runtime lineage — no build tools).
 # Copies installed modules from dev; no CPAN install runs here.

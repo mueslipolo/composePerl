@@ -192,7 +192,7 @@ ______________________________________________________________________
 **Run with:** `make test-container-build`
 **CI job:** `container-build` (every push and PR)
 
-Builds the full production 4-stage `Containerfile` (perl-src → base → dev → runtime) plus `Containerfile.deps` against a curated ~11-module cpanfile chosen to exercise every real build-mechanism case (pure Perl, XS-no-syslib, XS-with-syslib for libsqlite3/mariadb-connector-c/libpq/libxml2/libpng+libjpeg+freetype+gd, DBI, DBD::Oracle). Not a subset of production — each module earns its slot by covering something the others don't.
+Builds the full production 5-stage `Containerfile` (perl-src → base → dev-tools → dev → runtime) plus `Containerfile.deps` against a curated ~11-module cpanfile chosen to exercise every real build-mechanism case (pure Perl, XS-no-syslib, XS-with-syslib for libsqlite3/mariadb-connector-c/libpq/libxml2/libpng+libjpeg+freetype+gd, DBI, DBD::Oracle). Not a subset of production — each module earns its slot by covering something the others don't.
 
 `scripts/fetch-artifacts.sh` populates `artifacts/` with the pinned Perl source, cpanm fatpack, cpm fatpack, and Oracle Instant Client (basiclite + SDK) — all from public URLs with sha256 verification. Oracle is licensed for use but not redistribution.
 

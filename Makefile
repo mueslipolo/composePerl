@@ -1,4 +1,4 @@
-.PHONY: help status base bundle update update-all dev runtime all fetch-artifacts test-load-dev test-load-runtime test-full test-container-build clean
+.PHONY: help status base dev-tools bundle update update-all dev runtime all fetch-artifacts test-load-dev test-load-runtime test-full test-container-build clean
 
 # Optional: override the UBI base image to target a different RHEL/UBI version.
 # Default is UBI9 (set in Containerfile). Example:
@@ -18,6 +18,11 @@ status: ## Check status of bundles and images
 
 base: ## Build the shared base stage (myapp:base)
 	@UBI_IMAGE="$(UBI_IMAGE)" podman build --target base -t myapp:base \
+	    $(if $(UBI_IMAGE),--build-arg UBI_IMAGE=$(UBI_IMAGE),) \
+	    -f Containerfile .
+
+dev-tools: ## Build the dev-tools stage (myapp:dev-tools; shared by dev and Containerfile.deps)
+	@UBI_IMAGE="$(UBI_IMAGE)" podman build --target dev-tools -t myapp:dev-tools \
 	    $(if $(UBI_IMAGE),--build-arg UBI_IMAGE=$(UBI_IMAGE),) \
 	    -f Containerfile .
 
@@ -106,5 +111,5 @@ test-container-build: ## Full end-to-end build + lifecycle test with curated ~11
 
 clean: ## Remove images (bundles are preserved)
 	@echo "==> Cleaning up images..."
-	@podman rmi -f myapp:base myapp:carton-runner myapp:dev myapp:runtime 2>/dev/null || true
+	@podman rmi -f myapp:base myapp:dev-tools myapp:carton-runner myapp:dev myapp:runtime 2>/dev/null || true
 	@echo "==> Clean complete (bundles preserved)"
