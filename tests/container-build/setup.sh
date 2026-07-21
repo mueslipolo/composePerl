@@ -31,6 +31,7 @@ ln -sfn "${PROJECT_ROOT}/Containerfile"      "${WORKDIR}/Containerfile"
 ln -sfn "${PROJECT_ROOT}/Containerfile.deps" "${WORKDIR}/Containerfile.deps"
 ln -sfn "${PROJECT_ROOT}/Makefile"           "${WORKDIR}/Makefile"
 ln -sfn "${PROJECT_ROOT}/scripts"            "${WORKDIR}/scripts"
+ln -sfn "${PROJECT_ROOT}/lib-packages.conf"  "${WORKDIR}/lib-packages.conf"
 
 # artifacts/ must be a REAL directory inside the build context — podman does
 # not follow symlinks pointing outside its context. Prefer hardlinks (same-fs

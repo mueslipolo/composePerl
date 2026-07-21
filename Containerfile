@@ -62,10 +62,6 @@ RUN tar --no-same-owner -xzf "perl-${PERL_VERSION}.tar.gz" \
 # hadolint ignore=DL3006
 FROM ${UBI_IMAGE} AS base
 
-# So a failure in the awk half of `awk | xargs microdnf install` (below)
-# fails the build instead of xargs silently running on empty input.
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
 COPY --from=perl-src /opt/perl /opt/perl
 
 # Optional corporate CA trust: users behind a TLS-inspecting proxy drop
@@ -77,8 +73,16 @@ RUN rm -f /etc/pki/ca-trust/source/anchors/.gitkeep && update-ca-trust
 # single source of truth shared with the dev-tools -devel list below, so the
 # two can't drift apart from being hand-maintained separately.
 COPY lib-packages.conf /tmp/lib-packages.conf
-# hadolint ignore=DL3041
-RUN awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} $1!=""{print $1}' /tmp/lib-packages.conf \
+# set -o pipefail so a failure in the awk half of the pipe (not just xargs's)
+# fails the build. Inlined rather than a SHELL instruction: podman's default
+# OCI build output format silently ignores SHELL entirely (only the Docker
+# v2 format honours it), so that would have been a no-op here.
+# hadolint's DL4006/SC3040 assume /bin/sh might be POSIX-strict (alpine,
+# busybox); on RHEL/UBI /bin/sh is bash, where pipefail is valid — this repo
+# is UBI-only by design, so that assumption doesn't apply.
+# hadolint ignore=DL3041,DL4006,SC3040
+RUN set -o pipefail \
+  && awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} $1!=""{print $1}' /tmp/lib-packages.conf \
       | xargs microdnf -y install \
   && rm -f /tmp/lib-packages.conf \
   && microdnf clean all
@@ -114,10 +118,6 @@ ENV PATH="/opt/perl/bin:${PATH}" \
 # adds Carton). Editing the toolchain package list here updates both.
 FROM base AS dev-tools
 
-# SHELL does not carry across a FROM boundary even within the same
-# Containerfile — redeclare it here for the same reason as in `base`.
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
 # Generic build toolchain — not per-library, so not part of lib-packages.conf.
 # hadolint ignore=DL3041
 RUN microdnf -y install \
@@ -137,8 +137,9 @@ RUN microdnf -y install \
 # -devel headers matching base's runtime libs, generated from the same
 # lib-packages.conf (column 2) base's RUN used — see the comment there.
 COPY lib-packages.conf /tmp/lib-packages.conf
-# hadolint ignore=DL3041
-RUN awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} $2!=""{print $2}' /tmp/lib-packages.conf \
+# hadolint ignore=DL3041,DL4006,SC3040
+RUN set -o pipefail \
+  && awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} $2!=""{print $2}' /tmp/lib-packages.conf \
       | xargs microdnf -y install \
   && rm -f /tmp/lib-packages.conf \
   && microdnf clean all

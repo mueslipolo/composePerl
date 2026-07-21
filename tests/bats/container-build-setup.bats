@@ -19,7 +19,7 @@ setup() {
   chmod +x "$FAKE_ROOT/tests/container-build/setup.sh"
 
   # Minimal fixtures setup.sh needs to succeed — none need to be real.
-  touch "$FAKE_ROOT/Containerfile" "$FAKE_ROOT/Containerfile.deps" "$FAKE_ROOT/Makefile"
+  touch "$FAKE_ROOT/Containerfile" "$FAKE_ROOT/Containerfile.deps" "$FAKE_ROOT/Makefile" "$FAKE_ROOT/lib-packages.conf"
   mkdir -p "$FAKE_ROOT/scripts" "$FAKE_ROOT/artifacts"
   echo 'requires "Foo";' > "$FAKE_ROOT/tests/container-build/cpanfile"
   touch "$FAKE_ROOT/tests/container-build/test-load.pl"
@@ -52,6 +52,13 @@ run_setup() {
   [ -L "$WORKDIR/Containerfile" ]
   [ -L "$WORKDIR/Containerfile.deps" ]
   [ -L "$WORKDIR/Makefile" ]
+}
+
+@test "setup.sh symlinks lib-packages.conf (regression: Containerfile COPY lib-packages.conf needs it to exist)" {
+  run_setup
+  [ "$status" -eq 0 ]
+  [ -L "$WORKDIR/lib-packages.conf" ]
+  [ -e "$WORKDIR/lib-packages.conf" ]   # -e follows the symlink: catches a dangling link, not just a missing one
 }
 
 @test "setup.sh succeeds even when the real artifacts/ dir is empty (no Oracle artifacts required)" {
