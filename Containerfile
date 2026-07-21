@@ -72,18 +72,12 @@ RUN rm -f /etc/pki/ca-trust/source/anchors/.gitkeep && update-ca-trust
 # Runtime lib package list is generated from lib-packages.conf (column 1) —
 # single source of truth shared with the dev-tools -devel list below, so the
 # two can't drift apart from being hand-maintained separately.
+# Word-split command substitution instead of `awk | xargs`: this is the
+# minimal `base` stage, which deliberately has no findutils/xargs (that's
+# added in dev-tools only) — no pipe also means no pipefail/SHELL concern.
 COPY lib-packages.conf /tmp/lib-packages.conf
-# set -o pipefail so a failure in the awk half of the pipe (not just xargs's)
-# fails the build. Inlined rather than a SHELL instruction: podman's default
-# OCI build output format silently ignores SHELL entirely (only the Docker
-# v2 format honours it), so that would have been a no-op here.
-# hadolint's DL4006/SC3040 assume /bin/sh might be POSIX-strict (alpine,
-# busybox); on RHEL/UBI /bin/sh is bash, where pipefail is valid — this repo
-# is UBI-only by design, so that assumption doesn't apply.
-# hadolint ignore=DL3041,DL4006,SC3040
-RUN set -o pipefail \
-  && awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} $1!=""{print $1}' /tmp/lib-packages.conf \
-      | xargs microdnf -y install \
+# hadolint ignore=DL3041,SC2046
+RUN microdnf -y install $(awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} $1!=""{print $1}' /tmp/lib-packages.conf) \
   && rm -f /tmp/lib-packages.conf \
   && microdnf clean all
 
@@ -136,11 +130,11 @@ RUN microdnf -y install \
 
 # -devel headers matching base's runtime libs, generated from the same
 # lib-packages.conf (column 2) base's RUN used — see the comment there.
+# Same word-split form as base, for consistency (findutils/xargs happen to
+# be available here, but there's no reason for the two stages to differ).
 COPY lib-packages.conf /tmp/lib-packages.conf
-# hadolint ignore=DL3041,DL4006,SC3040
-RUN set -o pipefail \
-  && awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} $2!=""{print $2}' /tmp/lib-packages.conf \
-      | xargs microdnf -y install \
+# hadolint ignore=DL3041,SC2046
+RUN microdnf -y install $(awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} $2!=""{print $2}' /tmp/lib-packages.conf) \
   && rm -f /tmp/lib-packages.conf \
   && microdnf clean all
 
