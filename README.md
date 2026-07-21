@@ -234,6 +234,7 @@ Five-stage Containerfile build (`perl-src → base → dev-tools → dev`, with 
 │   ├── cpm                    # cpm fatpack
 │   └── instantclient-*.zip    # Oracle Instant Client
 ├── artifacts.sha256           # Hash lockfile for artifacts/ (see scripts/fetch-artifacts.sh)
+├── lib-packages.conf          # System lib runtime/-devel package pairs (base + dev-tools generate their microdnf lists from this)
 ├── docs/
 │   ├── architecture.md        # Stage-by-stage breakdown, diagrams, RHEL/UBI targeting
 │   ├── troubleshooting.md     # Build/test failure modes

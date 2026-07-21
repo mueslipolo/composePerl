@@ -42,7 +42,7 @@ Compiles Perl from source with `-Dusethreads` and `-Duseshrplib`, installs to `/
 The shared foundation for `dev` and `runtime`.
 
 - Copies compiled Perl from `perl-src`
-- Installs runtime system libraries only: `libpq`, `mariadb-connector-c`, `libaio`, `gd`, `libpng`, `libjpeg-turbo`, `freetype`, `libxml2`, `libxslt`, `openssl-libs`, `zlib`, `bzip2-libs`, `xz-libs`, `expat`, `libdb`
+- Installs runtime system libraries only, generated from `lib-packages.conf` (column 1) — see [Adjust Build Dependencies](#adjust-build-dependencies) for the full list and why each one's there
 - Extracts Oracle Instant Client runtime libraries from `artifacts/instantclient-basiclite*.zip`. `unzip` is installed transiently and removed in the same layer, so no zip and no unzip binary ships in this image.
 - Sets `PATH`, `PERL5LIB`, `LD_LIBRARY_PATH`, `ORACLE_HOME`
 - Contains **no** compilers, `-devel` headers, or Oracle SDK.
@@ -146,7 +146,7 @@ Match this to the production host OS to avoid `undefined symbol` errors at runti
 
 ## Adjust Build Dependencies
 
-Modify the `microdnf install` command in the `dev-tools` stage of `Containerfile` to add or remove system library build headers. `Containerfile.deps` `FROM`s `dev-tools`, so both the image build and the bundle-regeneration path pick up the change automatically.
+Per-library runtime/`-devel` package pairs live in `lib-packages.conf` at the repo root, not hardcoded separately in `base` and `dev-tools` — both stages generate their `microdnf install` list from it (`base` reads column 1, `dev-tools` column 2), so the two can't silently drift apart. Each entry's third column documents which cpanfile module(s) actually need it. To add a library: add one line there. To change the generic build toolchain (`gcc`, `make`, compilers, etc. — not per-library, so not in the manifest), edit the `dev-tools` stage's other `RUN microdnf install` block directly. `Containerfile.deps` `FROM`s `dev-tools`, so either change picks up automatically in the bundle-regeneration path too.
 
 ## Configure Perl Compilation
 

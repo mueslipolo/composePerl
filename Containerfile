@@ -62,6 +62,10 @@ RUN tar --no-same-owner -xzf "perl-${PERL_VERSION}.tar.gz" \
 # hadolint ignore=DL3006
 FROM ${UBI_IMAGE} AS base
 
+# So a failure in the awk half of `awk | xargs microdnf install` (below)
+# fails the build instead of xargs silently running on empty input.
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 COPY --from=perl-src /opt/perl /opt/perl
 
 # Optional corporate CA trust: users behind a TLS-inspecting proxy drop
@@ -69,23 +73,14 @@ COPY --from=perl-src /opt/perl /opt/perl
 COPY certs/ /etc/pki/ca-trust/source/anchors/
 RUN rm -f /etc/pki/ca-trust/source/anchors/.gitkeep && update-ca-trust
 
+# Runtime lib package list is generated from lib-packages.conf (column 1) —
+# single source of truth shared with the dev-tools -devel list below, so the
+# two can't drift apart from being hand-maintained separately.
+COPY lib-packages.conf /tmp/lib-packages.conf
 # hadolint ignore=DL3041
-RUN microdnf -y install \
-      libaio \
-      expat \
-      libdb \
-      libpq \
-      mariadb-connector-c \
-      gd \
-      libpng \
-      libjpeg-turbo \
-      freetype \
-      libxml2 \
-      libxslt \
-      openssl-libs \
-      zlib \
-      bzip2-libs \
-      xz-libs \
+RUN awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} $1!=""{print $1}' /tmp/lib-packages.conf \
+      | xargs microdnf -y install \
+  && rm -f /tmp/lib-packages.conf \
   && microdnf clean all
 
 # Oracle Instant Client (runtime libraries only, no SDK).
@@ -119,6 +114,11 @@ ENV PATH="/opt/perl/bin:${PATH}" \
 # adds Carton). Editing the toolchain package list here updates both.
 FROM base AS dev-tools
 
+# SHELL does not carry across a FROM boundary even within the same
+# Containerfile — redeclare it here for the same reason as in `base`.
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Generic build toolchain — not per-library, so not part of lib-packages.conf.
 # hadolint ignore=DL3041
 RUN microdnf -y install \
       gcc \
@@ -132,20 +132,15 @@ RUN microdnf -y install \
       gzip \
       unzip \
       patch \
-      libxml2-devel \
-      libxslt-devel \
-      expat-devel \
-      freetype-devel \
-      libpng-devel \
-      libjpeg-turbo-devel \
-      gd-devel \
-      postgresql-devel \
-      mariadb-connector-c-devel \
-      openssl-devel \
-      zlib-devel \
-      bzip2-devel \
-      xz-devel \
-      subversion-devel \
+  && microdnf clean all
+
+# -devel headers matching base's runtime libs, generated from the same
+# lib-packages.conf (column 2) base's RUN used — see the comment there.
+COPY lib-packages.conf /tmp/lib-packages.conf
+# hadolint ignore=DL3041
+RUN awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} $2!=""{print $2}' /tmp/lib-packages.conf \
+      | xargs microdnf -y install \
+  && rm -f /tmp/lib-packages.conf \
   && microdnf clean all
 
 # Oracle SDK headers (build-time only, required by DBD::Oracle).
