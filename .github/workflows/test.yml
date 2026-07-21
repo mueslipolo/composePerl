@@ -7,6 +7,30 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ShellCheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y shellcheck
+          shellcheck scripts/*.sh
+
+      - name: Install hadolint
+        run: |
+          curl -fsSL -o /usr/local/bin/hadolint \
+            https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64
+          chmod +x /usr/local/bin/hadolint
+
+      - name: hadolint Containerfile
+        run: hadolint Containerfile
+
+      - name: hadolint Containerfile.deps
+        run: hadolint Containerfile.deps
+
   bats:
     runs-on: ubuntu-latest
 
@@ -135,10 +159,16 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y podman
 
-      - name: Cache artifacts/
+      - name: Cache artifacts/ and artifacts.sha256
         uses: actions/cache@v4
         with:
-          path: artifacts
+          # artifacts.sha256 is the lockfile fetch-artifacts.sh pins hashes
+          # into — it must be cached alongside artifacts/ itself, or every
+          # run re-pins from scratch on trust-on-first-use with nothing to
+          # verify against, defeating the point of pinning.
+          path: |
+            artifacts
+            artifacts.sha256
           # Rebuild cache whenever the fetch script (URLs or pins) changes.
           key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh') }}
 

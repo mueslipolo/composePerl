@@ -11,6 +11,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUNDLE_LATEST="${PROJECT_ROOT}/bundles/bundle-latest.tar.gz"
+IMAGE_NAME="${IMAGE_NAME:-myapp}"
 
 # Optional UBI base image override — passed through as --build-arg if set
 UBI_BUILD_ARGS=()
@@ -52,13 +53,13 @@ echo "==> Bundle hash: ${BUNDLE_HASH}"
 # Build dev image
 if [[ "${BUILD_TARGET}" == "dev" || "${BUILD_TARGET}" == "all" ]]; then
     echo ""
-    echo "==> Building dev image (myapp:dev-${BUNDLE_HASH})..."
+    echo "==> Building dev image (${IMAGE_NAME}:dev-${BUNDLE_HASH})..."
     podman build \
         --target dev \
         "${UBI_BUILD_ARGS[@]}" \
         --label "bundle.hash=${BUNDLE_HASH}" \
-        -t "myapp:dev-${BUNDLE_HASH}" \
-        -t myapp:dev \
+        -t "${IMAGE_NAME}:dev-${BUNDLE_HASH}" \
+        -t "${IMAGE_NAME}:dev" \
         -f "${PROJECT_ROOT}/Containerfile" \
         "${PROJECT_ROOT}"
 
@@ -69,13 +70,13 @@ fi
 # Build runtime image
 if [[ "${BUILD_TARGET}" == "runtime" || "${BUILD_TARGET}" == "all" ]]; then
     echo ""
-    echo "==> Building runtime image (myapp:runtime-${BUNDLE_HASH})..."
+    echo "==> Building runtime image (${IMAGE_NAME}:runtime-${BUNDLE_HASH})..."
     podman build \
         --target runtime \
         "${UBI_BUILD_ARGS[@]}" \
         --label "bundle.hash=${BUNDLE_HASH}" \
-        -t "myapp:runtime-${BUNDLE_HASH}" \
-        -t myapp:runtime \
+        -t "${IMAGE_NAME}:runtime-${BUNDLE_HASH}" \
+        -t "${IMAGE_NAME}:runtime" \
         -f "${PROJECT_ROOT}/Containerfile" \
         "${PROJECT_ROOT}"
 
@@ -86,28 +87,28 @@ fi
 # Display image sizes
 echo ""
 echo "==> Image sizes:"
-podman images | grep -E "REPOSITORY|myapp" | grep -E "REPOSITORY|dev|runtime"
+podman images | grep -E "REPOSITORY|${IMAGE_NAME}" | grep -E "REPOSITORY|dev|runtime"
 
 echo ""
 echo "==> Build complete"
 if [[ "${BUILD_TARGET}" == "all" ]]; then
-    echo "    - Dev image:     myapp:dev-${BUNDLE_HASH} (also tagged as myapp:dev)"
-    echo "    - Runtime image: myapp:runtime-${BUNDLE_HASH} (also tagged as myapp:runtime)"
+    echo "    - Dev image:     ${IMAGE_NAME}:dev-${BUNDLE_HASH} (also tagged as ${IMAGE_NAME}:dev)"
+    echo "    - Runtime image: ${IMAGE_NAME}:runtime-${BUNDLE_HASH} (also tagged as ${IMAGE_NAME}:runtime)"
     echo ""
     echo "Next steps:"
     echo "  • Test libraries:  make test-load-dev  OR  make test-load-runtime"
-    echo "  • Run container:   podman run --rm -it myapp:dev /bin/bash"
-    echo "                     podman run --rm -it myapp:runtime /bin/bash"
+    echo "  • Run container:   podman run --rm -it ${IMAGE_NAME}:dev /bin/bash"
+    echo "                     podman run --rm -it ${IMAGE_NAME}:runtime /bin/bash"
 elif [[ "${BUILD_TARGET}" == "dev" ]]; then
-    echo "    - Dev image:     myapp:dev-${BUNDLE_HASH} (also tagged as myapp:dev)"
+    echo "    - Dev image:     ${IMAGE_NAME}:dev-${BUNDLE_HASH} (also tagged as ${IMAGE_NAME}:dev)"
     echo ""
     echo "Next steps:"
     echo "  • Test libraries:  make test-load-dev"
-    echo "  • Run container:   podman run --rm -it myapp:dev /bin/bash"
+    echo "  • Run container:   podman run --rm -it ${IMAGE_NAME}:dev /bin/bash"
 else
-    echo "    - Runtime image: myapp:runtime-${BUNDLE_HASH} (also tagged as myapp:runtime)"
+    echo "    - Runtime image: ${IMAGE_NAME}:runtime-${BUNDLE_HASH} (also tagged as ${IMAGE_NAME}:runtime)"
     echo ""
     echo "Next steps:"
     echo "  • Test libraries:  make test-load-runtime"
-    echo "  • Run container:   podman run --rm -it myapp:runtime /bin/bash"
+    echo "  • Run container:   podman run --rm -it ${IMAGE_NAME}:runtime /bin/bash"
 fi

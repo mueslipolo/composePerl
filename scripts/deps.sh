@@ -23,6 +23,7 @@ CPANFILE="${PROJECT_ROOT}/cpanfile"
 CPANFILE_SNAPSHOT="${PROJECT_ROOT}/cpanfile.snapshot"
 CONTAINERFILE="${PROJECT_ROOT}/Containerfile"
 CONTAINERFILE_DEPS="${PROJECT_ROOT}/Containerfile.deps"
+IMAGE_NAME="${IMAGE_NAME:-myapp}"
 
 setup_paths() {
     mkdir -p "${BUNDLES_DIR}"
@@ -77,14 +78,15 @@ build_carton_runner() {
     echo "==> Building dev-tools stage (prerequisite for Containerfile.deps)..."
     podman build \
         --target dev-tools \
-        -t myapp:dev-tools \
+        -t "${IMAGE_NAME}:dev-tools" \
         "${ubi_args[@]}" \
         -f "${CONTAINERFILE}" \
         "${PROJECT_ROOT}"
 
     echo "==> Building carton-runner from Containerfile.deps..."
     podman build \
-        -t myapp:carton-runner \
+        --build-arg "BASE_IMAGE_NAME=${IMAGE_NAME}" \
+        -t "${IMAGE_NAME}:carton-runner" \
         -f "${CONTAINERFILE_DEPS}" \
         "${PROJECT_ROOT}"
 }
@@ -135,7 +137,7 @@ cmd_bundle() {
 
     # Create temporary container to extract the bundle
     echo "==> Extracting bundle from container..."
-    CONTAINER_ID=$(podman create myapp:carton-runner)
+    CONTAINER_ID=$(podman create "${IMAGE_NAME}:carton-runner")
 
     # Extract the bundle artifact
     podman cp "${CONTAINER_ID}:/build/cpan-bundle.tar.gz" "${BUNDLE_PATH}"
@@ -230,7 +232,7 @@ cmd_update() {
 
     # Create and start container
     echo "==> Creating container..."
-    CONTAINER_ID=$(podman create myapp:carton-runner sleep infinity)
+    CONTAINER_ID=$(podman create "${IMAGE_NAME}:carton-runner" sleep infinity)
     podman start "${CONTAINER_ID}"
 
     # Execute carton command

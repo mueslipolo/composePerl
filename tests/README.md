@@ -1,6 +1,6 @@
 # Test Suite Documentation
 
-This repo has three testing layers with different scope, speed, and infrastructure requirements.
+This repo has four testing layers with different scope, speed, and infrastructure requirements, plus a separate `lint` CI job (hadolint + shellcheck) that isn't a test layer but gates the same push/PR.
 
 ## Layer 1 — Shell unit tests (`tests/bats/`)
 
@@ -13,13 +13,14 @@ Mocks `podman` with a logging stub (`tests/bats/mocks/podman`) that records ever
 
 ### Test files
 
-| File                     | What it covers                                                                                                                                                                         |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `deps.bats`              | Arg parsing, `carton update` vs `carton install` correctness, `/build` workdir, bundle hash naming, existing-bundle skip, symlink creation, UBI_IMAGE passthrough, precondition checks |
-| `build-image.bats`       | Target routing (`dev`/`runtime`/`all`), `--build-arg UBI_IMAGE` passthrough, hash extraction, missing-bundle guard                                                                     |
-| `status.bats`            | All exit-code paths (missing snapshot, missing bundle, stale symlink, hash mismatch, images missing, all-OK), carton-runner present/absent, no-git-repo safety                         |
-| `fetch-artifacts.bats`   | Arg rejection, `--help` no-download, idempotence (skips files with matching sha256), hash-mismatch failure, wrong-hash re-download                                                     |
-| `project-structure.bats` | Required files exist, scripts are executable                                                                                                                                           |
+| File                         | What it covers                                                                                                                                                                                                                                                        |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deps.bats`                  | Arg parsing, `carton update` vs `carton install` correctness, `/build` workdir, bundle hash naming, existing-bundle skip, symlink creation, UBI_IMAGE/IMAGE_NAME passthrough, build-info stamping (PERL_VERSION + UBI_IMAGE), precondition checks                     |
+| `build-image.bats`           | Target routing (`dev`/`runtime`/`all`), `--build-arg UBI_IMAGE` passthrough, IMAGE_NAME tagging, hash extraction, missing-bundle guard                                                                                                                                |
+| `status.bats`                | All exit-code paths (missing snapshot, missing bundle, stale symlink, hash mismatch, images missing, all-OK), carton-runner present/absent, IMAGE_NAME override, no-git-repo safety                                                                                   |
+| `fetch-artifacts.bats`       | Lockfile pinning (`artifacts.sha256`): first-run TOFU + independent MetaCPAN check for the Perl tarball, idempotent re-verification with no network calls, hard-fail on a pinned artifact's on-disk content diverging, hard-fail when an independent source disagrees |
+| `container-build-setup.bats` | `tests/container-build/setup.sh` creates `certs/`, `bundles/`, and the expected symlinks in the isolated workspace                                                                                                                                                    |
+| `project-structure.bats`     | Required files exist, scripts are executable                                                                                                                                                                                                                          |
 
 ### Regression guards
 
@@ -208,19 +209,14 @@ See `tests/container-build/README.md` for the per-module coverage rationale.
 
 ______________________________________________________________________
 
-## Layer 3 — Container module tests against production cpanfile (`tests/` Perl scripts)
-
-Not wired into public CI. Requires the full 700-module production `cpanfile.snapshot` and a corresponding bundle. Run locally when validating a real production build.
-
-______________________________________________________________________
-
 ## CI overview
 
 ```
 .github/workflows/test.yml
+├── lint job             — hadolint (both Containerfiles) + shellcheck (scripts/*.sh)
 ├── bats job             — Layer 1, ~10 sec, no external deps
 ├── integration job      — Layer 2, ~3 min, host-side carton→cpm pipeline (4 modules)
 └── container-build job  — Layer 4, ~10-16 min, full Containerfile build (11 modules, real Oracle)
 ```
 
-Layer 3 (container tests against production cpanfile) is not wired into public CI — it needs the 700-module production bundle. Run it locally against a real production build.
+Layer 3 (container tests against the full ~700-module production `cpanfile.snapshot`, not the curated Layer 4 subset) is not wired into public CI — it needs a corresponding production bundle. Run it locally (`make test-load-dev`, `make test-full`) against a real production build when validating one.

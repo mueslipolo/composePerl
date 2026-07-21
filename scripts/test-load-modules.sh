@@ -12,16 +12,17 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+IMAGE_NAME="${IMAGE_NAME:-myapp}"
 
 # Determine which image to test
 TEST_TARGET="${1:-dev}"
 
 case "${TEST_TARGET}" in
     dev)
-        IMAGE_NAME="myapp:dev"
+        TEST_IMAGE="${IMAGE_NAME}:dev"
         ;;
     runtime)
-        IMAGE_NAME="myapp:runtime"
+        TEST_IMAGE="${IMAGE_NAME}:runtime"
         ;;
     *)
         echo "ERROR: Invalid target '${TEST_TARGET}'"
@@ -30,11 +31,11 @@ case "${TEST_TARGET}" in
         ;;
 esac
 
-echo "==> Testing Perl libraries in ${IMAGE_NAME}"
+echo "==> Testing Perl libraries in ${TEST_IMAGE}"
 
 # Check if image exists
-if ! podman image exists "${IMAGE_NAME}"; then
-    echo "ERROR: Image ${IMAGE_NAME} does not exist"
+if ! podman image exists "${TEST_IMAGE}"; then
+    echo "ERROR: Image ${TEST_IMAGE} does not exist"
     echo "Build the image first with: make ${TEST_TARGET}"
     exit 1
 fi
@@ -48,15 +49,15 @@ podman run --rm \
     -v "${PROJECT_ROOT}/tests/TestConfig.pm:/tmp/TestConfig.pm:ro" \
     -v "${PROJECT_ROOT}/cpanfile:/tmp/cpanfile:ro" \
     -v "${PROJECT_ROOT}/tests/test-config.conf:/tmp/test-config.conf:ro" \
-    "${IMAGE_NAME}" \
+    "${TEST_IMAGE}" \
     /opt/perl/bin/perl /tmp/module-load-test.pl
 
 TEST_EXIT_CODE=$?
 
 echo ""
 if [[ ${TEST_EXIT_CODE} -eq 0 ]]; then
-    echo "==> Tests passed for ${IMAGE_NAME}"
+    echo "==> Tests passed for ${TEST_IMAGE}"
 else
-    echo "==> Tests FAILED for ${IMAGE_NAME}"
+    echo "==> Tests FAILED for ${TEST_IMAGE}"
     exit ${TEST_EXIT_CODE}
 fi

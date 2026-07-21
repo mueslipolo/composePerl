@@ -15,22 +15,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPORTS_DIR="${PROJECT_ROOT}/test-reports"
 CONFIG_FILE="${PROJECT_ROOT}/tests/test-config.conf"
-IMAGE_NAME="myapp:dev"
+IMAGE_NAME="${IMAGE_NAME:-myapp}"
+TEST_IMAGE="${IMAGE_NAME}:dev"
 
 # Module name is now first argument
 MODULE_NAME="${1:-}"
 
 if [[ -n "${MODULE_NAME}" ]]; then
-    echo "==> Running test suite for ${MODULE_NAME} in ${IMAGE_NAME}"
+    echo "==> Running test suite for ${MODULE_NAME} in ${TEST_IMAGE}"
 else
-    echo "==> Running full CPAN test suites in ${IMAGE_NAME}"
+    echo "==> Running full CPAN test suites in ${TEST_IMAGE}"
     echo "    This will take a while as it runs all module tests..."
 fi
 echo ""
 
 # Check if image exists
-if ! podman image exists "${IMAGE_NAME}"; then
-    echo "ERROR: Image ${IMAGE_NAME} does not exist"
+if ! podman image exists "${TEST_IMAGE}"; then
+    echo "ERROR: Image ${TEST_IMAGE} does not exist"
     echo "Build the image first with: make dev"
     exit 1
 fi
@@ -57,30 +58,30 @@ echo ""
 
 # Create container and run test suite
 # Pass JOBS environment variable for parallel execution
-JOBS_PARAM=""
+JOBS_PARAM=()
 if [[ -n "${JOBS:-}" ]]; then
-    JOBS_PARAM="-e JOBS=${JOBS}"
+    JOBS_PARAM=(-e "JOBS=${JOBS}")
 fi
 
 if [[ -n "${MODULE_NAME}" ]]; then
     CONTAINER_ID=$(podman create \
-        ${JOBS_PARAM} \
+        "${JOBS_PARAM[@]}" \
         -v "${PROJECT_ROOT}/cpanfile:/tmp/cpanfile:ro" \
         -v "${CONFIG_FILE}:/tmp/test-config.conf:ro" \
         -v "${PROJECT_ROOT}/tests/test-suite-runner.pl:/tmp/test-suite-runner.pl:ro" \
         -v "${PROJECT_ROOT}/tests/test-single-module.pl:/tmp/test-single-module.pl:ro" \
         -v "${PROJECT_ROOT}/tests/TestConfig.pm:/tmp/TestConfig.pm:ro" \
-        "${IMAGE_NAME}" \
+        "${TEST_IMAGE}" \
         /opt/perl/bin/perl /tmp/test-suite-runner.pl "${MODULE_NAME}")
 else
     CONTAINER_ID=$(podman create \
-        ${JOBS_PARAM} \
+        "${JOBS_PARAM[@]}" \
         -v "${PROJECT_ROOT}/cpanfile:/tmp/cpanfile:ro" \
         -v "${CONFIG_FILE}:/tmp/test-config.conf:ro" \
         -v "${PROJECT_ROOT}/tests/test-suite-runner.pl:/tmp/test-suite-runner.pl:ro" \
         -v "${PROJECT_ROOT}/tests/test-single-module.pl:/tmp/test-single-module.pl:ro" \
         -v "${PROJECT_ROOT}/tests/TestConfig.pm:/tmp/TestConfig.pm:ro" \
-        "${IMAGE_NAME}" \
+        "${TEST_IMAGE}" \
         /opt/perl/bin/perl /tmp/test-suite-runner.pl)
 fi
 
@@ -125,10 +126,10 @@ fi
 echo ""
 
 if [[ ${TEST_EXIT_CODE} -eq 0 ]]; then
-    echo "==> All tests PASSED for ${IMAGE_NAME}"
+    echo "==> All tests PASSED for ${TEST_IMAGE}"
     exit 0
 else
-    echo "==> Some tests FAILED for ${IMAGE_NAME}"
+    echo "==> Some tests FAILED for ${TEST_IMAGE}"
     echo "    Check details: ${REPORT_DETAIL_DIR}/"
     exit 1
 fi

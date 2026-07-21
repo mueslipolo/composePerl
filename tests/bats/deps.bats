@@ -24,6 +24,7 @@ setup() {
   export PATH="$MOCKS_DIR:$PATH"
   touch "$BATS_TEST_TMPDIR/podman.log"
   unset UBI_IMAGE
+  unset IMAGE_NAME
 }
 
 run_script() {
@@ -229,4 +230,23 @@ run_script() {
   [ "$status" -eq 0 ]
   grep -qF "UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10" \
     "$PROJECT_DIR/bundles/bundle-${expected_hash}.build-info"
+}
+
+# ── IMAGE_NAME override ───────────────────────────────────────────────────────
+
+@test "build_carton_runner tags dev-tools/carton-runner as myapp:* by default" {
+  run_script update --module DBI
+  [ "$status" -eq 0 ]
+  grep -q -- "-t myapp:dev-tools" "$BATS_TEST_TMPDIR/podman.log"
+  grep -q -- "-t myapp:carton-runner" "$BATS_TEST_TMPDIR/podman.log"
+}
+
+@test "build_carton_runner tags dev-tools/carton-runner under IMAGE_NAME when set" {
+  export IMAGE_NAME="billing-service"
+  run_script update --module DBI
+  [ "$status" -eq 0 ]
+  grep -q -- "-t billing-service:dev-tools" "$BATS_TEST_TMPDIR/podman.log"
+  grep -q -- "-t billing-service:carton-runner" "$BATS_TEST_TMPDIR/podman.log"
+  grep -q -- "--build-arg BASE_IMAGE_NAME=billing-service" "$BATS_TEST_TMPDIR/podman.log"
+  ! grep -q -- "myapp" "$BATS_TEST_TMPDIR/podman.log"
 }

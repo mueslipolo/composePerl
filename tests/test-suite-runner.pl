@@ -59,6 +59,39 @@ my @skip_test_modules = $config->get_all_skip_test();
 say 'Skip test configured: ' . scalar(@skip_test_modules) . ' modules';
 say '';
 
+# Writes one detail log file: header, exit code, environment, command, full
+# output. Shared by the PASSED/SKIPPED/FAILED branches below so the format
+# only needs to change in one place.
+sub write_detail_log {
+    my (%args) = @_;
+    my ($module, $label, $exit_code, $env_vars, $cmd_label, $output, $reason) =
+        @args{qw(module label exit_code env_vars cmd_label output reason)};
+
+    my $module_safe = $module;
+    $module_safe =~ s/::/-/g;
+    my $file = "$detail_dir/$module_safe.log";
+
+    open my $detail_fh, '>', $file or die "Cannot open $file: $!";
+
+    say $detail_fh '=' x 70;
+    say $detail_fh "$label: $module";
+    say $detail_fh '=' x 70;
+    say $detail_fh "Reason: $reason" if defined $reason;
+    say $detail_fh "Exit code: $exit_code";
+    if (keys %$env_vars) {
+        say $detail_fh "Environment: " . join(', ', map { "$_=$env_vars->{$_}" } keys %$env_vars);
+    }
+    say $detail_fh $cmd_label;
+    say $detail_fh '';
+    say $detail_fh '-' x 70;
+    say $detail_fh 'Full test output:';
+    say $detail_fh '-' x 70;
+    say $detail_fh $output;
+    say $detail_fh '=' x 70;
+
+    close $detail_fh;
+}
+
 # Run tests for each module
 my (@ok, @fail, @skipped);
 my $total = scalar(@modules);
@@ -87,14 +120,14 @@ for my $i (0 .. $#modules) {
         say "        Setting: $env_info";
     }
 
-    # Get custom test command or use default
-    my $test_cmd = $config->get_test_command($module);
-    if ($test_cmd) {
-        say "        Custom command: $test_cmd";
-        $test_cmd = "${env_string}${test_cmd}";
-    } else {
-        $test_cmd = "${env_string}cpanm --test-only --verbose $module";
-    }
+    # Resolve the command once: what gets displayed/logged and what gets run
+    # share the same source instead of re-querying the config twice.
+    my $custom_cmd = $config->get_test_command($module);
+    my $cmd_label = $custom_cmd
+        ? "Custom command: $custom_cmd"
+        : "Command: cpanm --test-only --verbose $module";
+    say "        $cmd_label" if $custom_cmd;
+    my $test_cmd = $env_string . ($custom_cmd || "cpanm --test-only --verbose $module");
 
     # Run the test
     my $output = `$test_cmd 2>&1`;
@@ -105,107 +138,32 @@ for my $i (0 .. $#modules) {
         push @ok, $module;
         say "$progress [ OK ] $module";
 
-        # When testing a single module, always create detailed report even on success
+        # When testing a single module, always create a detailed report even on success
         if ($single_module) {
-            my $module_safe = $module;
-            $module_safe =~ s/::/-/g;
-            my $module_detail_file = "$detail_dir/$module_safe.log";
-
-            open my $module_fh, '>', $module_detail_file or die "Cannot open $module_detail_file: $!";
-
-            say $module_fh '=' x 70;
-            say $module_fh "PASSED: $module";
-            say $module_fh '=' x 70;
-            say $module_fh "Exit code: $exit_code";
-
-            if (keys %$env_vars) {
-                say $module_fh "Environment: " . join(', ', map { "$_=$env_vars->{$_}" } keys %$env_vars);
-            }
-
-            if ($config->get_test_command($module)) {
-                say $module_fh "Custom command: " . $config->get_test_command($module);
-            } else {
-                say $module_fh "Command: cpanm --test-only --verbose $module";
-            }
-
-            say $module_fh '';
-            say $module_fh '-' x 70;
-            say $module_fh 'Full test output:';
-            say $module_fh '-' x 70;
-            say $module_fh $output;
-            say $module_fh '=' x 70;
-
-            close $module_fh;
+            write_detail_log(
+                module => $module, label => 'PASSED', exit_code => $exit_code,
+                env_vars => $env_vars, cmd_label => $cmd_label, output => $output,
+            );
         }
     } elsif ($output =~ /is up to date|already installed/) {
         push @skipped, { module => $module, reason => 'already tested/up to date' };
         say "$progress [SKIP] $module (already tested)";
 
         if ($single_module) {
-            my $module_safe = $module;
-            $module_safe =~ s/::/-/g;
-            my $module_detail_file = "$detail_dir/$module_safe.log";
-
-            open my $module_fh, '>', $module_detail_file or die "Cannot open $module_detail_file: $!";
-
-            say $module_fh '=' x 70;
-            say $module_fh "SKIPPED: $module";
-            say $module_fh '=' x 70;
-            say $module_fh "Reason: already tested/up to date";
-            say $module_fh "Exit code: $exit_code";
-
-            if (keys %$env_vars) {
-                say $module_fh "Environment: " . join(', ', map { "$_=$env_vars->{$_}" } keys %$env_vars);
-            }
-
-            if ($config->get_test_command($module)) {
-                say $module_fh "Custom command: " . $config->get_test_command($module);
-            } else {
-                say $module_fh "Command: cpanm --test-only --verbose $module";
-            }
-
-            say $module_fh '';
-            say $module_fh '-' x 70;
-            say $module_fh 'Full test output:';
-            say $module_fh '-' x 70;
-            say $module_fh $output;
-            say $module_fh '=' x 70;
-
-            close $module_fh;
+            write_detail_log(
+                module => $module, label => 'SKIPPED', exit_code => $exit_code,
+                env_vars => $env_vars, cmd_label => $cmd_label, output => $output,
+                reason => 'already tested/up to date',
+            );
         }
     } else {
         push @fail, $module;
         say "$progress [FAIL] $module (exit: $exit_code)";
 
-        my $module_safe = $module;
-        $module_safe =~ s/::/-/g;
-        my $module_detail_file = "$detail_dir/$module_safe.log";
-
-        open my $module_fh, '>', $module_detail_file or die "Cannot open $module_detail_file: $!";
-
-        say $module_fh '=' x 70;
-        say $module_fh "FAILED: $module";
-        say $module_fh '=' x 70;
-        say $module_fh "Exit code: $exit_code";
-
-        if (keys %$env_vars) {
-            say $module_fh "Environment: " . join(', ', map { "$_=$env_vars->{$_}" } keys %$env_vars);
-        }
-
-        if ($config->get_test_command($module)) {
-            say $module_fh "Custom command: " . $config->get_test_command($module);
-        } else {
-            say $module_fh "Command: cpanm --test-only --verbose $module";
-        }
-
-        say $module_fh '';
-        say $module_fh '-' x 70;
-        say $module_fh 'Full test output:';
-        say $module_fh '-' x 70;
-        say $module_fh $output;
-        say $module_fh '=' x 70;
-
-        close $module_fh;
+        write_detail_log(
+            module => $module, label => 'FAILED', exit_code => $exit_code,
+            env_vars => $env_vars, cmd_label => $cmd_label, output => $output,
+        );
 
         # Show brief error context on stdout
         my @errors = grep { /FAIL|Error:|not ok|Failed test/ } split /\n/, $output;

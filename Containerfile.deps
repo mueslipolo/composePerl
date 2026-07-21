@@ -1,15 +1,18 @@
 # Containerfile.deps - Bundle regeneration workflow
 #
-# Layers Carton on top of myapp:dev-tools (which already has the full XS
+# Layers Carton on top of <image>:dev-tools (which already has the full XS
 # toolchain and Oracle SDK) to generate the offline CPAN bundle. Invoked by
 # scripts/deps.sh for `make bundle` and `make update` / `make update-all`.
 #
-# Prerequisite: myapp:dev-tools must exist locally. scripts/deps.sh builds it
+# Prerequisite: <image>:dev-tools must exist locally. scripts/deps.sh builds it
 # from the main Containerfile (--target dev-tools) before invoking this file.
 # Because dev-tools is the same layer the `dev` stage builds on, the toolchain
 # package list lives in exactly one place (main Containerfile) — no drift.
 
-FROM myapp:dev-tools
+# Matches whatever image name Makefile's IMAGE_NAME (default "myapp") built
+# dev-tools under; deps.sh always passes this explicitly.
+ARG BASE_IMAGE_NAME=myapp
+FROM ${BASE_IMAGE_NAME}:dev-tools
 
 # Carton (via cpanm fatpack). Lives only in this image, never in dev/runtime.
 COPY artifacts/cpanm /opt/perl/bin/cpanm

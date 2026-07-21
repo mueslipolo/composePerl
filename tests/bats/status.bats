@@ -14,6 +14,7 @@ setup() {
   export PATH="$MOCKS_DIR:$PATH"
   unset PODMAN_IMAGE_EXISTS_RC
   unset PODMAN_BUNDLE_HASH
+  unset IMAGE_NAME
 }
 
 run_script() {
@@ -100,6 +101,21 @@ make_bundle() {
   run_script
   [ "$status" -eq 0 ]
   [[ "$output" == *"carton-runner"* ]]
+}
+
+# ── IMAGE_NAME override ───────────────────────────────────────────────────────
+
+@test "status.sh checks IMAGE_NAME:dev/runtime instead of myapp:* when IMAGE_NAME is set" {
+  hash=$(make_snapshot)
+  make_bundle "$hash"
+  export PODMAN_IMAGE_EXISTS_RC=0
+  export PODMAN_BUNDLE_HASH="$hash"
+  export IMAGE_NAME="billing-service"
+  run_script
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"billing-service:dev"* ]]
+  [[ "$output" == *"billing-service:runtime"* ]]
+  [[ "$output" != *"myapp"* ]]
 }
 
 # ── No git repo ───────────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUNDLES_DIR="${PROJECT_ROOT}/bundles"
 CPANFILE_SNAPSHOT="${PROJECT_ROOT}/cpanfile.snapshot"
+IMAGE_NAME="${IMAGE_NAME:-myapp}"
 
 # Colors
 GREEN='\033[0;32m'
@@ -98,10 +99,12 @@ check_image() {
 
     if podman image exists "${full_name}" 2>/dev/null; then
         # Get image size
-        local image_size=$(podman images --format "{{.Size}}" "${full_name}" 2>/dev/null | head -1)
+        local image_size
+        image_size=$(podman images --format "{{.Size}}" "${full_name}" 2>/dev/null | head -1)
 
         # Try to get the bundle hash from image labels
-        local image_hash=$(podman inspect "${full_name}" --format '{{index .Config.Labels "bundle.hash"}}' 2>/dev/null || echo "")
+        local image_hash
+        image_hash=$(podman inspect "${full_name}" --format '{{index .Config.Labels "bundle.hash"}}' 2>/dev/null || echo "")
 
         if [[ -n "${image_hash}" && "${image_hash}" == "${SNAPSHOT_HASH}" ]]; then
             echo -e "  ${GREEN}[OK]${NC} ${full_name} (bundle: ${image_hash}, size: ${image_size})"
@@ -120,19 +123,19 @@ check_image() {
 }
 
 # Check carton-runner (may not exist, that's ok)
-if podman image exists "myapp:carton-runner" 2>/dev/null; then
-    carton_size=$(podman images --format "{{.Size}}" "myapp:carton-runner" 2>/dev/null | head -1)
-    echo -e "  ${GREEN}[OK]${NC} myapp:carton-runner (size: ${carton_size})"
+if podman image exists "${IMAGE_NAME}:carton-runner" 2>/dev/null; then
+    carton_size=$(podman images --format "{{.Size}}" "${IMAGE_NAME}:carton-runner" 2>/dev/null | head -1)
+    echo -e "  ${GREEN}[OK]${NC} ${IMAGE_NAME}:carton-runner (size: ${carton_size})"
 fi
 
 # Check dev image
-if ! check_image "myapp" "dev"; then
+if ! check_image "${IMAGE_NAME}" "dev"; then
     echo -e "  ${YELLOW}  →${NC} Run: ${GREEN}make dev${NC}"
     NEEDS_UPDATE=true
 fi
 
 # Check runtime image
-if ! check_image "myapp" "runtime"; then
+if ! check_image "${IMAGE_NAME}" "runtime"; then
     echo -e "  ${YELLOW}  →${NC} Run: ${GREEN}make runtime${NC}"
     NEEDS_UPDATE=true
 fi

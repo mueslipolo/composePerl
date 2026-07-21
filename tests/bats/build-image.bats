@@ -16,6 +16,7 @@ setup() {
   export PATH="$MOCKS_DIR:$PATH"
   touch "$BATS_TEST_TMPDIR/podman.log"
   unset UBI_IMAGE
+  unset IMAGE_NAME
 }
 
 run_script() {
@@ -99,4 +100,22 @@ make_bundle() {
   run_script dev
   [ "$status" -eq 0 ]
   ! grep -q -- "--build-arg UBI_IMAGE" "$BATS_TEST_TMPDIR/podman.log"
+}
+
+# ── IMAGE_NAME override ───────────────────────────────────────────────────────
+
+@test "build-image.sh tags images as myapp:* by default" {
+  make_bundle
+  run_script dev
+  [ "$status" -eq 0 ]
+  grep -q -- "-t myapp:dev" "$BATS_TEST_TMPDIR/podman.log"
+}
+
+@test "build-image.sh tags images under IMAGE_NAME when set" {
+  make_bundle
+  export IMAGE_NAME="billing-service"
+  run_script dev
+  [ "$status" -eq 0 ]
+  grep -q -- "-t billing-service:dev" "$BATS_TEST_TMPDIR/podman.log"
+  ! grep -q -- "-t myapp:dev" "$BATS_TEST_TMPDIR/podman.log"
 }

@@ -1,44 +1,76 @@
 #!/usr/bin/env bash
-# Mock curl for fetch-artifacts.bats.
-# Parses -o <dest> and the URL, writes a synthetic payload keyed on the
-# destination filename so identical inputs across runs produce identical
-# sha256s (which lets us test idempotence).
+# Mock curl for fetch-artifacts.bats. The real script makes three distinct
+# kinds of curl call; this mock handles all three:
+#   1. Downloads:     curl ... -o <dest> <url>            -> writes a payload to <dest>
+#   2. MetaCPAN POST:  curl ... -X POST <metacpan-url> ... -> JSON to stdout
+#   3. CHECKSUMS GET:  curl ... <cpan CHECKSUMS url>       -> Perl-struct text to stdout
 #
-# When FETCH_MOCK_BAD_PAYLOAD=1, writes random-per-run junk so the sha256
-# never matches the real pinned hash (used for the mismatch-failure test).
+# Logs every invocation to $BATS_TEST_TMPDIR/curl.log so tests can assert on
+# how many network calls actually happened (idempotent runs should make none).
+#
+# FETCH_MOCK_BAD_PAYLOAD=1        - downloads write random junk (tamper/corruption test)
+# FETCH_MOCK_METACPAN_SHA256=xxx  - MetaCPAN lookup reports this hash instead of the
+#                                   real downloaded file's hash (independent-source-
+#                                   disagrees test)
+# FETCH_MOCK_ARTIFACTS_DIR        - where to find the just-downloaded perl tarball when
+#                                   computing the default (self-consistent) MetaCPAN hash
 
 set -eu
 
+echo "curl $*" >> "${BATS_TEST_TMPDIR}/curl.log"
+
 dest=""
 url=""
+is_post=0
 
-# Skip flags we don't need to interpret; capture -o and the trailing URL
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -o) dest="$2"; shift 2 ;;
-        -f|-s|-S|-L) shift ;;
-        -fsSL|-fSL|-fsS) shift ;;
-        --retry|--retry-delay) shift 2 ;;
+        -X) [[ "${2:-}" == "POST" ]] && is_post=1; shift 2 ;;
+        -H|-d) shift 2 ;;
+        --retry) shift 2 ;;
+        -fsSL|-fSL|-fsS|-fL|-f|-s|-S|-L) shift ;;
         --*) shift ;;
         http*|https*) url="$1"; shift ;;
         *) shift ;;
     esac
 done
 
-if [[ -z "$dest" ]]; then
-    echo "curl mock: no -o destination given" >&2
-    exit 22
-fi
-
-if [[ "${FETCH_MOCK_BAD_PAYLOAD:-0}" == "1" ]]; then
-    # Random content each call so sha256 will not match any pinned value
-    head -c 32 /dev/urandom > "$dest"
-else
-    # Deterministic per-destination payload keyed on the FINAL artifact
-    # name (strip the .tmp suffix the script uses during download).
+if [[ -n "$dest" ]]; then
+    # Case 1: a download with -o. Deterministic-per-destination content so
+    # idempotent re-runs (and the MetaCPAN self-check below) see stable hashes.
     final_name="$(basename "$dest")"
-    final_name="${final_name%.tmp}"
-    printf 'mock-payload-for-%s\n' "$final_name" > "$dest"
+    final_name="${final_name%.part}"
+    if [[ "${FETCH_MOCK_BAD_PAYLOAD:-0}" == "1" ]]; then
+        head -c 32 /dev/urandom > "$dest"
+    else
+        printf 'mock-payload-for-%s\n' "$final_name" > "$dest"
+    fi
+    exit 0
 fi
 
-exit 0
+if [[ "$url" == *fastapi.metacpan.org* ]] && [[ "$is_post" == "1" ]]; then
+    # Case 2: MetaCPAN independent-checksum lookup. Default: report the real
+    # hash of whatever was just downloaded to FETCH_MOCK_ARTIFACTS_DIR, so the
+    # happy path is self-consistent without hardcoding a version number here.
+    if [[ -n "${FETCH_MOCK_METACPAN_SHA256:-}" ]]; then
+        hash="${FETCH_MOCK_METACPAN_SHA256}"
+    else
+        hash="$(sha256sum "${FETCH_MOCK_ARTIFACTS_DIR:-/nonexistent}"/perl-*.tar.gz 2>/dev/null | head -1 | cut -d' ' -f1)"
+    fi
+    if [[ -z "$hash" ]]; then
+        exit 22   # simulates a failed MetaCPAN request
+    fi
+    printf '{"checksum_sha256":"%s"}\n' "$hash"
+    exit 0
+fi
+
+if [[ "$url" == *cpan.org/src/5.0/CHECKSUMS* ]]; then
+    # Case 3: CHECKSUMS fallback, only reached if MetaCPAN failed. Empty by
+    # default (both independent sources unavailable); tests can override.
+    printf '%s' "${FETCH_MOCK_CHECKSUMS_BODY:-}"
+    exit 0
+fi
+
+echo "curl mock: unrecognized invocation: $*" >&2
+exit 1

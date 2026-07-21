@@ -16,6 +16,7 @@ ARG UBI_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.6
 # ============================================================================
 # Isolated as its own stage because Perl compile is expensive (10+ min) and
 # rarely changes — this is the cache boundary that pays for itself.
+# hadolint ignore=DL3006
 FROM ${UBI_IMAGE} AS perl-src
 
 ARG PERL_VERSION
@@ -58,6 +59,7 @@ RUN tar --no-same-owner -xzf "perl-${PERL_VERSION}.tar.gz" \
 # Sole ancestor of both dev and runtime → guarantees identical runtime libraries
 # in production and development. Contains ONLY runtime libraries (no build tools,
 # no -devel packages).
+# hadolint ignore=DL3006
 FROM ${UBI_IMAGE} AS base
 
 COPY --from=perl-src /opt/perl /opt/perl
@@ -89,8 +91,8 @@ RUN microdnf -y install \
 # Oracle Instant Client (runtime libraries only, no SDK).
 # unzip is installed transiently and removed in the same layer, so it never
 # ships in the final image.
-# hadolint ignore=DL3041
 COPY artifacts/instantclient-basiclite*.zip /tmp/
+# hadolint ignore=DL3041
 RUN microdnf install -y unzip \
     && unzip -o -q /tmp/instantclient-basiclite*.zip -d /opt/oracle \
     && mv /opt/oracle/instantclient_* /opt/oracle/instantclient \
@@ -212,5 +214,14 @@ RUN microdnf install -y shadow-utils \
     && microdnf clean all
 
 USER appuser
+
+# No HEALTHCHECK: app.pl is a placeholder that prints and exits rather than
+# serving requests, so there's nothing for a check to poll yet. When a real
+# long-running component lands here, add one against its actual liveness
+# signal, e.g.:
+#   HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+#       CMD curl -f http://localhost:PORT/health || exit 1
+# A check that always passes (e.g. "perl -e 1") would be worse than no check
+# at all — it reports healthy regardless of whether the app is actually up.
 
 CMD ["/opt/perl/bin/perl", "app.pl"]

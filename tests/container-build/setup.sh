@@ -64,4 +64,11 @@ ln -sfn "${PROJECT_ROOT}/tests/test-config.conf"    "${WORKDIR}/tests/test-confi
 # Bundle output dir (podman writes bundles/bundle-<hash>.tar.gz here)
 mkdir -p "${WORKDIR}/bundles"
 
+# certs/ must exist (even empty) — Containerfile's perl-src and base stages
+# both COPY certs/ unconditionally for optional corporate CA trust, and
+# podman refuses to COPY a source path that doesn't exist in the build
+# context.
+mkdir -p "${WORKDIR}/certs"
+touch "${WORKDIR}/certs/.gitkeep"
+
 echo "${WORKDIR}"
