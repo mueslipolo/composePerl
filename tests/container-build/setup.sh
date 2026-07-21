@@ -31,7 +31,14 @@ ln -sfn "${PROJECT_ROOT}/Containerfile"      "${WORKDIR}/Containerfile"
 ln -sfn "${PROJECT_ROOT}/Containerfile.deps" "${WORKDIR}/Containerfile.deps"
 ln -sfn "${PROJECT_ROOT}/Makefile"           "${WORKDIR}/Makefile"
 ln -sfn "${PROJECT_ROOT}/scripts"            "${WORKDIR}/scripts"
-ln -sfn "${PROJECT_ROOT}/lib-packages.conf"  "${WORKDIR}/lib-packages.conf"
+
+# lib-packages.conf must be a REAL file, not a symlink — Containerfile COPYs
+# it (`COPY lib-packages.conf /tmp/...`), and like artifacts/ below, podman's
+# copier does not follow symlinks pointing outside the build context. A
+# symlink here (as Containerfile/Makefile/scripts/ above use) works only
+# because those are never the target of a COPY instruction — make and bash
+# read them straight off disk, host-side, before podman ever starts.
+cp "${PROJECT_ROOT}/lib-packages.conf" "${WORKDIR}/lib-packages.conf"
 
 # artifacts/ must be a REAL directory inside the build context — podman does
 # not follow symlinks pointing outside its context. Prefer hardlinks (same-fs

@@ -19,7 +19,8 @@ setup() {
   chmod +x "$FAKE_ROOT/tests/container-build/setup.sh"
 
   # Minimal fixtures setup.sh needs to succeed — none need to be real.
-  touch "$FAKE_ROOT/Containerfile" "$FAKE_ROOT/Containerfile.deps" "$FAKE_ROOT/Makefile" "$FAKE_ROOT/lib-packages.conf"
+  touch "$FAKE_ROOT/Containerfile" "$FAKE_ROOT/Containerfile.deps" "$FAKE_ROOT/Makefile"
+  echo "libfoo|libfoo-devel|Foo::Bar" > "$FAKE_ROOT/lib-packages.conf"
   mkdir -p "$FAKE_ROOT/scripts" "$FAKE_ROOT/artifacts"
   echo 'requires "Foo";' > "$FAKE_ROOT/tests/container-build/cpanfile"
   touch "$FAKE_ROOT/tests/container-build/test-load.pl"
@@ -54,11 +55,16 @@ run_setup() {
   [ -L "$WORKDIR/Makefile" ]
 }
 
-@test "setup.sh symlinks lib-packages.conf (regression: Containerfile COPY lib-packages.conf needs it to exist)" {
+@test "setup.sh copies lib-packages.conf as a real file, not a symlink (regression: podman COPY can't follow a symlink out of the build context)" {
+  # A symlink here would pass this same assertion style trivially (bats never
+  # invokes podman, so -e/-L alone can't catch the actual failure mode) — the
+  # real constraint is "must not be a symlink AND must be a real regular
+  # file with the right content", mirroring how artifacts/ is handled below.
   run_setup
   [ "$status" -eq 0 ]
-  [ -L "$WORKDIR/lib-packages.conf" ]
-  [ -e "$WORKDIR/lib-packages.conf" ]   # -e follows the symlink: catches a dangling link, not just a missing one
+  [ ! -L "$WORKDIR/lib-packages.conf" ]
+  [ -f "$WORKDIR/lib-packages.conf" ]
+  diff -q "$FAKE_ROOT/lib-packages.conf" "$WORKDIR/lib-packages.conf"
 }
 
 @test "setup.sh succeeds even when the real artifacts/ dir is empty (no Oracle artifacts required)" {
