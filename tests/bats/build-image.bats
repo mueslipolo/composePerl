@@ -17,6 +17,7 @@ setup() {
   touch "$BATS_TEST_TMPDIR/podman.log"
   unset UBI_IMAGE
   unset IMAGE_NAME
+  unset http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY
 }
 
 run_script() {
@@ -118,4 +119,35 @@ make_bundle() {
   [ "$status" -eq 0 ]
   grep -q -- "-t billing-service:dev" "$BATS_TEST_TMPDIR/podman.log"
   ! grep -q -- "-t myapp:dev" "$BATS_TEST_TMPDIR/podman.log"
+}
+
+# ── Proxy passthrough ──────────────────────────────────────────────────────────
+
+@test "build-image.sh passes --build-arg http_proxy/https_proxy/no_proxy when set" {
+  make_bundle
+  export http_proxy="http://proxy.corp.example:8080"
+  export https_proxy="http://proxy.corp.example:8080"
+  export no_proxy="localhost,127.0.0.1"
+  run_script dev
+  [ "$status" -eq 0 ]
+  grep -q -- "--build-arg http_proxy=http://proxy.corp.example:8080" "$BATS_TEST_TMPDIR/podman.log"
+  grep -q -- "--build-arg https_proxy=http://proxy.corp.example:8080" "$BATS_TEST_TMPDIR/podman.log"
+  grep -q -- "--build-arg no_proxy=localhost,127.0.0.1" "$BATS_TEST_TMPDIR/podman.log"
+}
+
+@test "build-image.sh omits proxy --build-args when unset" {
+  make_bundle
+  run_script dev
+  [ "$status" -eq 0 ]
+  ! grep -q -- "--build-arg http_proxy" "$BATS_TEST_TMPDIR/podman.log"
+  ! grep -q -- "--build-arg https_proxy" "$BATS_TEST_TMPDIR/podman.log"
+  ! grep -q -- "--build-arg no_proxy" "$BATS_TEST_TMPDIR/podman.log"
+}
+
+@test "build-image.sh folds uppercase HTTP_PROXY in when lowercase is unset" {
+  make_bundle
+  export HTTP_PROXY="http://proxy.corp.example:8080"
+  run_script dev
+  [ "$status" -eq 0 ]
+  grep -q -- "--build-arg http_proxy=http://proxy.corp.example:8080" "$BATS_TEST_TMPDIR/podman.log"
 }

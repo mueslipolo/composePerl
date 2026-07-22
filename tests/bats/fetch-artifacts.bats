@@ -20,6 +20,7 @@ setup() {
   export FETCH_MOCK_ARTIFACTS_DIR="$PROJECT_DIR/artifacts"
   touch "$BATS_TEST_TMPDIR/curl.log"
   unset FETCH_MOCK_BAD_PAYLOAD FETCH_MOCK_METACPAN_SHA256 FETCH_MOCK_CHECKSUMS_BODY
+  unset http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY
 }
 
 run_script() {
@@ -115,4 +116,31 @@ perl_version() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"MetaCPAN lookup failed"* ]]
   [[ "$output" == *"could not obtain sha256"* ]]
+}
+
+# ── Proxy normalization ────────────────────────────────────────────────────────
+
+@test "reports configured proxy and reaches curl when https_proxy is set" {
+  export https_proxy="http://proxy.corp.example:8080"
+  run_script
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Proxy: https_proxy=http://proxy.corp.example:8080"* ]]
+  # Confirms the env var reached the actual curl invocation, not just the
+  # script's own echo.
+  grep -q "https_proxy=http://proxy.corp.example:8080" "$BATS_TEST_TMPDIR/curl.log"
+}
+
+@test "reports no proxy configured when unset" {
+  run_script
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No proxy configured"* ]]
+}
+
+@test "folds uppercase HTTPS_PROXY/NO_PROXY in when lowercase is unset" {
+  export HTTPS_PROXY="http://proxy.corp.example:8080"
+  export NO_PROXY="localhost,127.0.0.1"
+  run_script
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"https_proxy=http://proxy.corp.example:8080"* ]]
+  grep -q "https_proxy=http://proxy.corp.example:8080 no_proxy=localhost,127.0.0.1" "$BATS_TEST_TMPDIR/curl.log"
 }

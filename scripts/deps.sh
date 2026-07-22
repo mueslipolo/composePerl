@@ -25,6 +25,13 @@ CONTAINERFILE="${PROJECT_ROOT}/Containerfile"
 CONTAINERFILE_DEPS="${PROJECT_ROOT}/Containerfile.deps"
 IMAGE_NAME="${IMAGE_NAME:-myapp}"
 
+# Fold uppercase HTTP_PROXY/HTTPS_PROXY/NO_PROXY in as a fallback — some
+# corporate environments only export that form, but podman/microdnf/HTTP::Tiny
+# inside the build all read lowercase. See docs/proxy.md.
+: "${http_proxy:=${HTTP_PROXY:-}}"
+: "${https_proxy:=${HTTPS_PROXY:-}}"
+: "${no_proxy:=${NO_PROXY:-}}"
+
 setup_paths() {
     mkdir -p "${BUNDLES_DIR}"
 }
@@ -75,11 +82,17 @@ build_carton_runner() {
     local ubi_args=()
     [[ -n "${UBI_IMAGE:-}" ]] && ubi_args=(--build-arg "UBI_IMAGE=${UBI_IMAGE}")
 
+    local proxy_args=()
+    [[ -n "${http_proxy:-}"  ]] && proxy_args+=(--build-arg "http_proxy=${http_proxy}")
+    [[ -n "${https_proxy:-}" ]] && proxy_args+=(--build-arg "https_proxy=${https_proxy}")
+    [[ -n "${no_proxy:-}"    ]] && proxy_args+=(--build-arg "no_proxy=${no_proxy}")
+
     echo "==> Building dev-tools stage (prerequisite for Containerfile.deps)..."
     podman build \
         --target dev-tools \
         -t "${IMAGE_NAME}:dev-tools" \
         "${ubi_args[@]}" \
+        "${proxy_args[@]}" \
         -f "${CONTAINERFILE}" \
         "${PROJECT_ROOT}"
 

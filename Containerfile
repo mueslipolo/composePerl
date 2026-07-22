@@ -11,6 +11,15 @@ ARG PERL_VERSION=5.28.1
 # Example: --build-arg UBI_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:8.10
 ARG UBI_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.6
 
+# Optional corporate proxy for microdnf/cpanm/carton network access during the
+# build. No-op if unset, same pattern as certs/ below (which handles TLS trust
+# for a TLS-inspecting proxy — a different, complementary concern: these vars
+# make traffic *reach* the proxy, certs/ makes TLS validation *succeed* once
+# it's there). See docs/proxy.md for which tool reads which var and why.
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
 # ============================================================================
 # Stage 1/5: perl-src - Compile Perl from source
 # ============================================================================
@@ -20,6 +29,12 @@ ARG UBI_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.6
 FROM ${UBI_IMAGE} AS perl-src
 
 ARG PERL_VERSION
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+ENV http_proxy=${http_proxy} \
+    https_proxy=${https_proxy} \
+    no_proxy=${no_proxy}
 
 # Optional corporate CA trust: users behind a TLS-inspecting proxy drop
 # their CA cert(s) into certs/ (gitignored). No-op otherwise.
@@ -61,6 +76,13 @@ RUN tar --no-same-owner -xzf "perl-${PERL_VERSION}.tar.gz" \
 # no -devel packages).
 # hadolint ignore=DL3006
 FROM ${UBI_IMAGE} AS base
+
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+ENV http_proxy=${http_proxy} \
+    https_proxy=${https_proxy} \
+    no_proxy=${no_proxy}
 
 COPY --from=perl-src /opt/perl /opt/perl
 
@@ -110,6 +132,13 @@ ENV PATH="/opt/perl/bin:${PATH}" \
 # NO CPAN modules and NO application code — exists purely to be the shared
 # ancestor of `dev` (which adds modules + app) and Containerfile.deps (which
 # adds Carton). Editing the toolchain package list here updates both.
+#
+# No proxy ARG/ENV redeclared here: http_proxy/https_proxy/no_proxy set in
+# `base` are already baked into its image config and inherited automatically
+# by every `FROM base` (this stage) or `FROM <image>:dev-tools`
+# (Containerfile.deps) — redeclaring here with no default would overwrite the
+# inherited value with an empty string on any build that doesn't repeat the
+# same --build-arg.
 FROM base AS dev-tools
 
 # Generic build toolchain — not per-library, so not part of lib-packages.conf.

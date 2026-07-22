@@ -19,6 +19,16 @@ if [[ -n "${UBI_IMAGE:-}" ]]; then
     UBI_BUILD_ARGS=(--build-arg "UBI_IMAGE=${UBI_IMAGE}")
 fi
 
+# Fold uppercase HTTP_PROXY/HTTPS_PROXY/NO_PROXY in as a fallback — some
+# corporate environments only export that form. See docs/proxy.md.
+: "${http_proxy:=${HTTP_PROXY:-}}"
+: "${https_proxy:=${HTTPS_PROXY:-}}"
+: "${no_proxy:=${NO_PROXY:-}}"
+PROXY_BUILD_ARGS=()
+[[ -n "${http_proxy}"  ]] && PROXY_BUILD_ARGS+=(--build-arg "http_proxy=${http_proxy}")
+[[ -n "${https_proxy}" ]] && PROXY_BUILD_ARGS+=(--build-arg "https_proxy=${https_proxy}")
+[[ -n "${no_proxy}"    ]] && PROXY_BUILD_ARGS+=(--build-arg "no_proxy=${no_proxy}")
+
 # Determine which images to build
 BUILD_TARGET="${1:-all}"
 
@@ -57,6 +67,7 @@ if [[ "${BUILD_TARGET}" == "dev" || "${BUILD_TARGET}" == "all" ]]; then
     podman build \
         --target dev \
         "${UBI_BUILD_ARGS[@]}" \
+        "${PROXY_BUILD_ARGS[@]}" \
         --label "bundle.hash=${BUNDLE_HASH}" \
         -t "${IMAGE_NAME}:dev-${BUNDLE_HASH}" \
         -t "${IMAGE_NAME}:dev" \
@@ -74,6 +85,7 @@ if [[ "${BUILD_TARGET}" == "runtime" || "${BUILD_TARGET}" == "all" ]]; then
     podman build \
         --target runtime \
         "${UBI_BUILD_ARGS[@]}" \
+        "${PROXY_BUILD_ARGS[@]}" \
         --label "bundle.hash=${BUNDLE_HASH}" \
         -t "${IMAGE_NAME}:runtime-${BUNDLE_HASH}" \
         -t "${IMAGE_NAME}:runtime" \

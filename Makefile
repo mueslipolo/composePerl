@@ -10,10 +10,20 @@ UBI_IMAGE ?=
 #   make all IMAGE_NAME=billing-service
 IMAGE_NAME ?= myapp
 
+# Optional corporate proxy for microdnf/cpanm/carton network access during the
+# build. Usually already set as real env vars (in which case these ?= are a
+# no-op) — declared here mainly so `make bundle https_proxy=http://...` works
+# as a CLI override too, consistent with UBI_IMAGE/IMAGE_NAME above. See
+# docs/proxy.md — scripts/*.sh also accept the uppercase HTTP_PROXY/
+# HTTPS_PROXY/NO_PROXY form as a fallback; Make itself does not need to.
+http_proxy ?=
+https_proxy ?=
+no_proxy ?=
+
 # Exported so every recipe's shell sees these without repeating VAR="$(VAR)"
 # on each line — also means a future target can't forget to thread one
 # through and silently fall back to the default.
-export UBI_IMAGE IMAGE_NAME
+export UBI_IMAGE IMAGE_NAME http_proxy https_proxy no_proxy
 
 # Perl version is defined once in the Containerfile; read it from there so the
 # artifact check always matches what COPY will look for.

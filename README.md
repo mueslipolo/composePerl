@@ -276,6 +276,11 @@ Five-stage Containerfile build (`perl-src → base → dev-tools → dev`, with 
 - Bash 4+
 - Basic UNIX utilities (sha256sum, tar, readlink)
 
+Behind a corporate proxy: every download path (`fetch-artifacts.sh`, `microdnf`,
+`cpanm`/`carton`) honors `http_proxy`/`https_proxy`/`no_proxy` (uppercase also
+accepted) — see [`docs/proxy.md`](docs/proxy.md) for the one tool that needed
+more than "just set the env var."
+
 ## Troubleshooting
 
 Common failure modes (missing bundle, build fails with missing dependencies, test failures, permission issues, missing bundle-hash label) and their fixes: [`docs/troubleshooting.md`](docs/troubleshooting.md).

@@ -18,6 +18,23 @@
 
 set -euo pipefail
 
+# --- Proxy ---------------------------------------------------------------------
+# curl (used for every download below) reads lowercase http_proxy/https_proxy/
+# no_proxy. It deliberately does NOT read uppercase HTTP_PROXY for plain http://
+# requests (the 2016 "httpoxy" CVE), but does read HTTPS_PROXY — moot here since
+# every URL below is https anyway. Some corporate environments only export the
+# uppercase form, so fold that in as a fallback rather than requiring users to
+# know which casing curl actually wants.
+: "${http_proxy:=${HTTP_PROXY:-}}"
+: "${https_proxy:=${HTTPS_PROXY:-}}"
+: "${no_proxy:=${NO_PROXY:-}}"
+export http_proxy https_proxy no_proxy
+if [ -n "${https_proxy}" ] || [ -n "${http_proxy}" ]; then
+    echo "==> Proxy: https_proxy=${https_proxy:-<unset>} http_proxy=${http_proxy:-<unset>} no_proxy=${no_proxy:-<unset>}"
+else
+    echo "==> No proxy configured (http_proxy/https_proxy unset)"
+fi
+
 # --- Locations ---------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"

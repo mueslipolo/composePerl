@@ -17,7 +17,9 @@
 
 set -eu
 
-echo "curl $*" >> "${BATS_TEST_TMPDIR}/curl.log"
+# Logging the proxy env vars actually seen here (not just what the script
+# printed) proves they reached the real downstream consumer of them.
+echo "curl $* [http_proxy=${http_proxy:-} https_proxy=${https_proxy:-} no_proxy=${no_proxy:-}]" >> "${BATS_TEST_TMPDIR}/curl.log"
 
 dest=""
 url=""
@@ -31,7 +33,7 @@ while [[ $# -gt 0 ]]; do
         --retry) shift 2 ;;
         -fsSL|-fSL|-fsS|-fL|-f|-s|-S|-L) shift ;;
         --*) shift ;;
-        http*|https*) url="$1"; shift ;;
+        http*) url="$1"; shift ;;
         *) shift ;;
     esac
 done

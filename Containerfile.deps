@@ -14,6 +14,13 @@
 ARG BASE_IMAGE_NAME=myapp
 FROM ${BASE_IMAGE_NAME}:dev-tools
 
+# No proxy ARG/ENV here by design: http_proxy/https_proxy/no_proxy are
+# inherited from whatever was baked into :dev-tools's image config (see the
+# main Containerfile's `base` stage). deps.sh always rebuilds dev-tools with
+# the current proxy args immediately before building this file, so it's
+# already current — redeclaring here with no default would clobber that
+# inherited value with an empty string. See docs/proxy.md.
+
 # Carton (via cpanm fatpack). Lives only in this image, never in dev/runtime.
 COPY artifacts/cpanm /opt/perl/bin/cpanm
 RUN /opt/perl/bin/cpanm --notest Carton
