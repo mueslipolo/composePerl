@@ -31,6 +31,14 @@ perl_version() {
   sed -n 's/^ARG PERL_VERSION=//p' "$PROJECT_DIR/Containerfile"
 }
 
+cpanm_version() {
+  sed -n 's/^CPANM_VERSION="\(.*\)"$/\1/p' "$PROJECT_DIR/scripts/fetch-artifacts.sh"
+}
+
+cpm_version() {
+  sed -n 's/^CPM_VERSION="\(.*\)"$/\1/p' "$PROJECT_DIR/scripts/fetch-artifacts.sh"
+}
+
 # ── First-run pinning ─────────────────────────────────────────────────────────
 
 @test "first run creates artifacts.sha256 and pins all five artifacts" {
@@ -59,8 +67,44 @@ perl_version() {
 @test "first run TOFU-pins cpanm/cpm/Oracle artifacts with no independent source" {
   run_script
   [ "$status" -eq 0 ]
-  [[ "$output" == *"pinned:   cpanm (trust-on-first-use, no independent source)"* ]]
-  [[ "$output" == *"pinned:   cpm (trust-on-first-use, no independent source)"* ]]
+  # cpanm/cpm are cached under a version-suffixed filename (cpanm-<version>,
+  # with a stable `cpanm` symlink alongside) — unlike the Perl tarball and
+  # Oracle zips, whose filenames already encode their version, a bare
+  # `cpanm` would never change name across a CPANM_VERSION bump, and the
+  # script's download() skips fetching whenever the destination already
+  # exists. Read the versions dynamically so this test doesn't need
+  # updating every time CPANM_VERSION/CPM_VERSION bump.
+  [[ "$output" == *"pinned:   cpanm-$(cpanm_version) (trust-on-first-use, no independent source)"* ]]
+  [[ "$output" == *"pinned:   cpm-$(cpm_version) (trust-on-first-use, no independent source)"* ]]
+  [ -L "$PROJECT_DIR/artifacts/cpanm" ]
+  [ -L "$PROJECT_DIR/artifacts/cpm" ]
+  [ "$(readlink "$PROJECT_DIR/artifacts/cpanm")" = "cpanm-$(cpanm_version)" ]
+  [ "$(readlink "$PROJECT_DIR/artifacts/cpm")" = "cpm-$(cpm_version)" ]
+}
+
+@test "bumping CPANM_VERSION and re-running fetches the new version instead of reusing the old cache" {
+  # Regression test: cpanm/cpm are the one artifact type whose filename
+  # doesn't already encode its version, so a naive `download()` (skip if the
+  # destination exists) would silently keep serving the old binary forever
+  # after a version bump. The version-suffixed filename fixes this — this
+  # test proves it empirically rather than by inspection.
+  run_script
+  [ "$status" -eq 0 ]
+  old_version="$(cpanm_version)"
+  [ -f "$PROJECT_DIR/artifacts/cpanm-${old_version}" ]
+
+  sed -i "s/^CPANM_VERSION=\"${old_version}\"/CPANM_VERSION=\"9.9999\"/" \
+    "$PROJECT_DIR/scripts/fetch-artifacts.sh"
+
+  run_script
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Fetching cpanm-9.9999"* ]]
+  [ -f "$PROJECT_DIR/artifacts/cpanm-9.9999" ]
+  # Old version's file is untouched, not deleted — same "accumulate" pattern
+  # bundles/ and versioned Perl tarballs already use elsewhere in this repo.
+  [ -f "$PROJECT_DIR/artifacts/cpanm-${old_version}" ]
+  # The stable name now points at the NEW version, not the old one.
+  [ "$(readlink "$PROJECT_DIR/artifacts/cpanm")" = "cpanm-9.9999" ]
 }
 
 # ── Idempotence ────────────────────────────────────────────────────────────────

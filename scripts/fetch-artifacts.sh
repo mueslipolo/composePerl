@@ -223,13 +223,25 @@ else
 fi
 
 # cpanm / cpm — fetched from immutable release tags; TOFU-pinned.
-download "${CPANM_URL}" "${ARTIFACTS_DIR}/cpanm"
-verify_or_learn "${ARTIFACTS_DIR}/cpanm"
-chmod +x "${ARTIFACTS_DIR}/cpanm"
+#
+# Downloaded under a version-suffixed filename (cpanm-${CPANM_VERSION}), with
+# a stable `cpanm` symlink pointing at it — same pattern as bundle-latest.tar.gz
+# elsewhere in this repo. This matters: unlike the Perl tarball and Oracle
+# zips (whose filenames already encode their version), a bare `artifacts/cpanm`
+# would never change name across a CPANM_VERSION bump, and download() skips
+# fetching whenever the destination already exists — so bumping the version
+# constant would silently keep running the old cached binary forever. The
+# version-suffixed name makes a bump behave the same as every other artifact:
+# change the constant, re-run, get the new file under a new lockfile entry.
+download "${CPANM_URL}" "${ARTIFACTS_DIR}/cpanm-${CPANM_VERSION}"
+verify_or_learn "${ARTIFACTS_DIR}/cpanm-${CPANM_VERSION}"
+chmod +x "${ARTIFACTS_DIR}/cpanm-${CPANM_VERSION}"
+ln -sfn "cpanm-${CPANM_VERSION}" "${ARTIFACTS_DIR}/cpanm"
 
-download "${CPM_URL}" "${ARTIFACTS_DIR}/cpm"
-verify_or_learn "${ARTIFACTS_DIR}/cpm"
-chmod +x "${ARTIFACTS_DIR}/cpm"
+download "${CPM_URL}" "${ARTIFACTS_DIR}/cpm-${CPM_VERSION}"
+verify_or_learn "${ARTIFACTS_DIR}/cpm-${CPM_VERSION}"
+chmod +x "${ARTIFACTS_DIR}/cpm-${CPM_VERSION}"
+ln -sfn "cpm-${CPM_VERSION}" "${ARTIFACTS_DIR}/cpm"
 
 # Oracle Instant Client — versioned URLs; TOFU-pinned. Hashes can be manually
 # cross-checked once against the checksums published on Oracle's download page.
