@@ -57,6 +57,17 @@ my @skip_test_modules = $config->get_all_skip_test();
 say 'Skip test configured: ' . scalar(@skip_test_modules) . ' modules';
 say '';
 
+# Quotes a value for safe embedding in a single-quoted shell string: closes
+# the quote, inserts an escaped literal quote, reopens it. Needed because
+# env.* values from test-config.conf get spliced into a backtick-executed
+# command below — a value containing its own single quote would otherwise
+# break out of the surrounding '...' and be interpreted as shell syntax.
+sub shell_quote {
+    my ($str) = @_;
+    $str =~ s/'/'\\''/g;
+    return "'$str'";
+}
+
 # Writes one detail log file: header, exit code, environment, command, full
 # output. Shared by the PASSED/SKIPPED/FAILED branches below so the format
 # only needs to change in one place.
@@ -114,7 +125,7 @@ for my $i (0 .. $#modules) {
     my $env_string = '';
     if (keys %$env_vars) {
         my $env_info = join(', ', map { "$_=$env_vars->{$_}" } keys %$env_vars);
-        $env_string = join(' ', map { "$_='$env_vars->{$_}'" } keys %$env_vars) . ' ';
+        $env_string = join(' ', map { "$_=" . shell_quote($env_vars->{$_}) } keys %$env_vars) . ' ';
         say "        Setting: $env_info";
     }
 

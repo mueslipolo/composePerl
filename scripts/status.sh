@@ -91,7 +91,12 @@ echo ""
 
 echo -e "${BLUE}Image status:${NC}"
 
-# Helper function to check if image exists and get its labels
+# Helper function to check if image exists and get its labels. Returns a
+# plain boolean (0 ok, 1 not ok) — every caller only ever branches on
+# "does this need attention", and the remediation text is the same
+# ("make dev"/"make runtime") whether the image is missing entirely or just
+# has a stale/absent bundle-hash label, so a finer-grained exit code
+# wouldn't change what happens at the call site.
 check_image() {
     local image_name=$1
     local image_tag=$2
@@ -118,7 +123,7 @@ check_image() {
         fi
     else
         echo -e "  ${RED}[MISSING]${NC} ${full_name} not found"
-        return 2
+        return 1
     fi
 }
 
