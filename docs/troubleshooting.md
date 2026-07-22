@@ -27,7 +27,7 @@
 **Solution**:
 
 - Check build logs for installation errors
-- Add missing system libraries to the `dev` stage; if it's a shared runtime dependency, add it to `base` so `runtime` picks it up too
+- Add missing system libraries to `lib-packages.conf`: devel packages (column 2) apply to the `dev-tools` stage; if it's a shared runtime dependency, add it to column 1 so `base` — and therefore `runtime` — picks it up too
 - For dev image: ensure bundle includes all dependencies
 - Check `test-reports/*-latest-detail.txt` for full error output
 - Debugging a failing `make test-full` run specifically: check the summary for the failed module list, review `test-reports/full-TIMESTAMP-details/` (only failed tests are logged there), re-run just that module with `make test-full MODULE=FailedModule`, and configure known-problematic modules in `tests/test-config.conf` (`skip_test`, `env.*`, `test_command` — see `tests/README.md` for the full format)

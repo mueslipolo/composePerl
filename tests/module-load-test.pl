@@ -3,7 +3,7 @@
 # module-load-test.pl - Quick smoke test for Perl modules
 #
 # Purpose: Verifies that all modules in cpanfile can be loaded
-# Usage:   Run via 'make test-dev' or 'make test-runtime'
+# Usage:   Run via 'make test-load-dev' or 'make test-load-runtime'
 # Config:  Uses test-config.conf to skip modules (skip_load = yes)
 # Output:  Pass/Fail/Skip count and list of skipped modules with reasons
 

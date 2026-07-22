@@ -87,8 +87,10 @@ podman run --rm myapp:runtime   # Production image
 ```bash
 make help                     # Show available targets with descriptions
 make status                   # Check status of bundles and images
+make check-artifacts          # Verify build artifacts exist (auto-runs fetch-artifacts if missing)
 make fetch-artifacts          # Download perl, cpanm, cpm, and Oracle Instant Client into artifacts/
 make base                     # Build the shared base stage (myapp:base)
+make dev-tools                # Build the dev-tools stage (myapp:dev-tools; shared by dev and Containerfile.deps)
 make bundle                   # Generate CPAN bundle from cpanfile.snapshot
 make update MODULE=name       # Update one module in cpanfile.snapshot
 make update-all               # Update all modules in cpanfile.snapshot

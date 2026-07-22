@@ -152,10 +152,13 @@ cmd_bundle() {
     echo "==> Extracting bundle from container..."
     CONTAINER_ID=$(podman create "${IMAGE_NAME}:carton-runner")
 
-    # Extract the bundle artifact
-    podman cp "${CONTAINER_ID}:/build/cpan-bundle.tar.gz" "${BUNDLE_PATH}"
-
-    # Clean up container
+    # Extract the bundle artifact; always remove the container afterward,
+    # even if the copy fails, so a broken extraction doesn't leak it.
+    if ! podman cp "${CONTAINER_ID}:/build/cpan-bundle.tar.gz" "${BUNDLE_PATH}"; then
+        echo "ERROR: Failed to copy bundle from container"
+        podman rm "${CONTAINER_ID}" || true
+        exit 1
+    fi
     podman rm "${CONTAINER_ID}"
 
     # Verify bundle was created
@@ -257,9 +260,16 @@ cmd_update() {
         exit 1
     fi
 
-    # Extract the updated cpanfile.snapshot
+    # Extract the updated cpanfile.snapshot; always stop/remove the
+    # container afterward, even if the copy fails, so a broken extraction
+    # doesn't leak a running container.
     echo "==> Extracting updated cpanfile.snapshot..."
-    podman cp "${CONTAINER_ID}:/build/cpanfile.snapshot" "${CPANFILE_SNAPSHOT}"
+    if ! podman cp "${CONTAINER_ID}:/build/cpanfile.snapshot" "${CPANFILE_SNAPSHOT}"; then
+        echo "ERROR: Failed to copy cpanfile.snapshot from container"
+        podman stop "${CONTAINER_ID}" || true
+        podman rm "${CONTAINER_ID}" || true
+        exit 1
+    fi
 
     # Clean up container
     podman stop "${CONTAINER_ID}"

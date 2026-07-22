@@ -77,3 +77,8 @@ the test-specific `cpanfile` / `cpanfile.snapshot` / `app/`. This means:
 - The real production `cpanfile` is never touched (no `git status` surprises)
 - The build exercises the actual production `Containerfile`, not a copy
 - Multiple test runs can share the workspace or use fresh ones
+
+`make test-container-build` removes its `$(mktemp -d)` workspace and the
+images it built (`base`/`dev-tools`/`carton-runner`/`dev`/`runtime`) when the
+run succeeds. On failure it removes the images but leaves the workspace in
+place — the failure message prints its path — so it's still there to inspect.

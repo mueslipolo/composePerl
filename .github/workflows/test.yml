@@ -17,7 +17,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y shellcheck
-          shellcheck scripts/*.sh
+          shellcheck scripts/*.sh tests/container-build/setup.sh
 
       - name: Install hadolint
         run: |

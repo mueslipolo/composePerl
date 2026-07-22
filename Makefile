@@ -110,6 +110,16 @@ fetch-artifacts: ## Download perl source, cpanm, cpm, and Oracle Instant Client 
 test-container-build: ## Full end-to-end build + lifecycle test with curated ~11-module cpanfile
 	@set -e; \
 	WORKDIR="$$(bash tests/container-build/setup.sh)"; \
+	cleanup() { \
+	    status=$$?; \
+	    podman rmi -f $(IMAGE_NAME):base $(IMAGE_NAME):dev-tools $(IMAGE_NAME):carton-runner $(IMAGE_NAME):dev $(IMAGE_NAME):runtime >/dev/null 2>&1 || true; \
+	    if [ "$$status" -eq 0 ]; then \
+	        rm -rf "$$WORKDIR"; \
+	    else \
+	        echo "==> FAILED — workspace preserved for debugging: $$WORKDIR"; \
+	    fi; \
+	}; \
+	trap cleanup EXIT; \
 	echo "==> container-build workspace: $$WORKDIR"; \
 	echo ""; \
 	echo "==> Phase 1: Initial bundle + image build from committed snapshot"; \

@@ -44,6 +44,9 @@ fi
 echo "==> Running module-load-test.pl in container..."
 echo ""
 
+# Don't let set -e kill the script here — we need the exit code below to
+# print the right pass/fail message.
+set +e
 podman run --rm \
     -v "${PROJECT_ROOT}/tests/module-load-test.pl:/tmp/module-load-test.pl:ro" \
     -v "${PROJECT_ROOT}/tests/TestConfig.pm:/tmp/TestConfig.pm:ro" \
@@ -51,8 +54,8 @@ podman run --rm \
     -v "${PROJECT_ROOT}/tests/test-config.conf:/tmp/test-config.conf:ro" \
     "${TEST_IMAGE}" \
     /opt/perl/bin/perl /tmp/module-load-test.pl
-
 TEST_EXIT_CODE=$?
+set -e
 
 echo ""
 if [[ ${TEST_EXIT_CODE} -eq 0 ]]; then
