@@ -18,13 +18,13 @@ The full build pipeline as it exists in production:
 
 ## What's here
 
-| File                | Purpose                                                                                   |
-| ------------------- | ----------------------------------------------------------------------------------------- |
-| `cpanfile`          | ~11 modules, each covering a distinct build-mechanism case (see below)                    |
-| `cpanfile.snapshot` | Not committed. `setup.sh` creates an empty placeholder; carton regenerates on first build |
-| `app/app.pl`        | Trivial hello-world app (satisfies the Containerfile's `COPY app/`)                       |
-| `test-load.pl`      | Verifies every module in cpanfile loads inside the built image                            |
-| `setup.sh`          | Assembles an isolated build workspace in `$(mktemp -d)`                                   |
+| File                | Purpose                                                                                                                                                                                                                                                                                                                             |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cpanfile`          | ~11 modules, each covering a distinct build-mechanism case (see below)                                                                                                                                                                                                                                                              |
+| `cpanfile.snapshot` | Not committed. `setup.sh` creates an empty placeholder; carton regenerates on first build                                                                                                                                                                                                                                           |
+| `app/app.pl`        | Trivial hello-world app (satisfies the Containerfile's `COPY app/`)                                                                                                                                                                                                                                                                 |
+| `test-load.pl`      | Verifies every module in cpanfile loads inside the built image                                                                                                                                                                                                                                                                      |
+| `setup.sh`          | Assembles an isolated build workspace in `$(mktemp -d)`: symlinks `Containerfile`/`Containerfile.deps`/`Makefile`/`scripts/`/`lib-packages.conf`, stages `artifacts/` and `certs/` as real directories (podman's `COPY` can't follow a symlink out of the build context), copies the test-specific `cpanfile`/`app/`/`test-load.pl` |
 
 ## Module coverage rationale
 

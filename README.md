@@ -230,14 +230,17 @@ Five-stage Containerfile build (`perl-src → base → dev-tools → dev`, with 
 │   └── app.pl                 # Application code (placeholder — see "What this repo is for")
 ├── artifacts/                 # Pre-downloaded build artifacts (gitignored)
 │   ├── perl-5.28.1.tar.gz
-│   ├── cpanm                  # cpanm fatpack
-│   ├── cpm                    # cpm fatpack
+│   ├── cpanm -> cpanm-1.7048       # stable name; survives a CPANM_VERSION bump
+│   ├── cpanm-1.7048                # actual fatpack, version-suffixed
+│   ├── cpm -> cpm-0.997024         # same pattern as cpanm
+│   ├── cpm-0.997024
 │   └── instantclient-*.zip    # Oracle Instant Client
 ├── artifacts.sha256           # Hash lockfile for artifacts/ (see scripts/fetch-artifacts.sh)
 ├── lib-packages.conf          # System lib runtime/-devel package pairs (base + dev-tools generate their microdnf lists from this)
 ├── docs/
 │   ├── architecture.md        # Stage-by-stage breakdown, diagrams, RHEL/UBI targeting
 │   ├── troubleshooting.md     # Build/test failure modes
+│   ├── proxy.md                # Enterprise proxy support (http_proxy/https_proxy/no_proxy)
 │   └── vm-deployment.md       # Installing a bundle onto a perlbrew-managed legacy VM
 ├── scripts/                   # Build and management scripts
 │   ├── deps.sh                # CPAN dependency manager (bundle + snapshot update)

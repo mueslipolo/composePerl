@@ -199,7 +199,8 @@ Builds the full production 5-stage `Containerfile` (perl-src → base → dev-to
 
 `tests/container-build/setup.sh` assembles a `$(mktemp -d)` workspace with:
 
-- symlinks to the real `Containerfile`, `Containerfile.deps`, `Makefile`, `scripts/`, `artifacts/`
+- symlinks to the real `Containerfile`, `Containerfile.deps`, `Makefile`, `scripts/`, `lib-packages.conf`
+- `artifacts/` and `certs/` staged as **real** directories, not symlinks — podman's `COPY` instruction won't follow a symlink pointing outside the build context, which both `Containerfile` (`COPY certs/`, `COPY artifacts/...`) rely on
 - copies of the test-specific `cpanfile`, `app/app.pl`, `test-load.pl`
 - an empty `cpanfile.snapshot` placeholder (Carton regenerates it fresh inside `Containerfile.deps` on first `make bundle`)
 
