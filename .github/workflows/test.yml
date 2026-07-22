@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: ShellCheck
         run: |
@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install bats-core
         run: |
@@ -50,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install cpanm, Carton, and cpm
         run: |
@@ -152,7 +152,7 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install podman
         run: |
@@ -160,7 +160,7 @@ jobs:
           sudo apt-get install -y podman
 
       - name: Cache artifacts/ and artifacts.sha256
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           # artifacts.sha256 is the lockfile fetch-artifacts.sh pins hashes
           # into — it must be cached alongside artifacts/ itself, or every
