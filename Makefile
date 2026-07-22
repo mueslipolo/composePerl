@@ -10,6 +10,11 @@ UBI_IMAGE ?=
 #   make all IMAGE_NAME=billing-service
 IMAGE_NAME ?= myapp
 
+# Exported so every recipe's shell sees these without repeating VAR="$(VAR)"
+# on each line — also means a future target can't forget to thread one
+# through and silently fall back to the default.
+export UBI_IMAGE IMAGE_NAME
+
 # Perl version is defined once in the Containerfile; read it from there so the
 # artifact check always matches what COPY will look for.
 PERL_VERSION := $(shell sed -n 's/^ARG PERL_VERSION=//p' Containerfile)
@@ -23,7 +28,7 @@ help: ## Show this help message
 	@echo ""
 
 status: ## Check status of bundles and images
-	@IMAGE_NAME="$(IMAGE_NAME)" ./scripts/status.sh
+	@./scripts/status.sh
 
 check-artifacts: ## Verify build artifacts exist (auto-runs fetch-artifacts if missing)
 	@check() { \
@@ -50,44 +55,44 @@ check-artifacts: ## Verify build artifacts exist (auto-runs fetch-artifacts if m
 	fi
 
 base: check-artifacts ## Build the shared base stage ($(IMAGE_NAME):base)
-	@UBI_IMAGE="$(UBI_IMAGE)" podman build --target base -t $(IMAGE_NAME):base \
+	@podman build --target base -t $(IMAGE_NAME):base \
 	    $(if $(UBI_IMAGE),--build-arg UBI_IMAGE=$(UBI_IMAGE),) \
 	    -f Containerfile .
 
 dev-tools: check-artifacts ## Build the dev-tools stage ($(IMAGE_NAME):dev-tools; shared by dev and Containerfile.deps)
-	@UBI_IMAGE="$(UBI_IMAGE)" IMAGE_NAME="$(IMAGE_NAME)" podman build --target dev-tools -t $(IMAGE_NAME):dev-tools \
+	@podman build --target dev-tools -t $(IMAGE_NAME):dev-tools \
 	    $(if $(UBI_IMAGE),--build-arg UBI_IMAGE=$(UBI_IMAGE),) \
 	    -f Containerfile .
 
 bundle: check-artifacts ## Generate CPAN bundle from cpanfile.snapshot
-	@UBI_IMAGE="$(UBI_IMAGE)" IMAGE_NAME="$(IMAGE_NAME)" ./scripts/deps.sh bundle
+	@./scripts/deps.sh bundle
 
 update: check-artifacts ## Update one module in cpanfile.snapshot (usage: make update MODULE=Name)
 	@if [ -z "$(MODULE)" ]; then \
 	    echo "ERROR: MODULE=name required (e.g. make update MODULE=DBI)"; exit 2; \
 	fi
-	@UBI_IMAGE="$(UBI_IMAGE)" IMAGE_NAME="$(IMAGE_NAME)" ./scripts/deps.sh update --module $(MODULE)
+	@./scripts/deps.sh update --module $(MODULE)
 
 update-all: check-artifacts ## Update all modules in cpanfile.snapshot to latest satisfying cpanfile
-	@UBI_IMAGE="$(UBI_IMAGE)" IMAGE_NAME="$(IMAGE_NAME)" ./scripts/deps.sh update --all
+	@./scripts/deps.sh update --all
 
 dev: check-artifacts ## Build the development image ($(IMAGE_NAME):dev)
-	@UBI_IMAGE="$(UBI_IMAGE)" IMAGE_NAME="$(IMAGE_NAME)" ./scripts/build-image.sh dev
+	@./scripts/build-image.sh dev
 
 runtime: check-artifacts ## Build the runtime image ($(IMAGE_NAME):runtime)
-	@UBI_IMAGE="$(UBI_IMAGE)" IMAGE_NAME="$(IMAGE_NAME)" ./scripts/build-image.sh runtime
+	@./scripts/build-image.sh runtime
 
 all: bundle ## Generate bundle and build both dev and runtime images
-	@UBI_IMAGE="$(UBI_IMAGE)" IMAGE_NAME="$(IMAGE_NAME)" ./scripts/build-image.sh all
+	@./scripts/build-image.sh all
 
 test-load-dev: ## Quick test: verify all Perl libraries can be loaded in dev image
-	@IMAGE_NAME="$(IMAGE_NAME)" ./scripts/test-load-modules.sh dev
+	@./scripts/test-load-modules.sh dev
 
 test-load-runtime: ## Quick test: verify all Perl libraries can be loaded in runtime image
-	@IMAGE_NAME="$(IMAGE_NAME)" ./scripts/test-load-modules.sh runtime
+	@./scripts/test-load-modules.sh runtime
 
 test-full: ## Run full CPAN test suites in dev image (use MODULE=name)
-	@ IMAGE_NAME="$(IMAGE_NAME)" ./scripts/test-run-suites.sh $(MODULE)
+	@./scripts/test-run-suites.sh $(MODULE)
 
 fetch-artifacts: ## Download perl source, cpanm, cpm, and Oracle Instant Client into artifacts/
 	@./scripts/fetch-artifacts.sh
@@ -98,10 +103,10 @@ test-container-build: ## Full end-to-end build + lifecycle test with curated ~11
 	echo "==> container-build workspace: $$WORKDIR"; \
 	echo ""; \
 	echo "==> Phase 1: Initial bundle + image build from committed snapshot"; \
-	cd "$$WORKDIR" && UBI_IMAGE="$(UBI_IMAGE)" IMAGE_NAME="$(IMAGE_NAME)" $(MAKE) bundle; \
-	cd "$$WORKDIR" && UBI_IMAGE="$(UBI_IMAGE)" IMAGE_NAME="$(IMAGE_NAME)" $(MAKE) all; \
-	cd "$$WORKDIR" && IMAGE_NAME="$(IMAGE_NAME)" $(MAKE) test-load-dev; \
-	cd "$$WORKDIR" && IMAGE_NAME="$(IMAGE_NAME)" $(MAKE) test-load-runtime; \
+	cd "$$WORKDIR" && $(MAKE) bundle; \
+	cd "$$WORKDIR" && $(MAKE) all; \
+	cd "$$WORKDIR" && $(MAKE) test-load-dev; \
+	cd "$$WORKDIR" && $(MAKE) test-load-runtime; \
 	echo ""; \
 	echo "==> Phase 2: Verify baseline pinned versions (Try::Tiny should be 0.30)"; \
 	podman run --rm -v "$$WORKDIR/test-load.pl:/tmp/test-load.pl:ro" $(IMAGE_NAME):dev \
@@ -112,7 +117,7 @@ test-container-build: ## Full end-to-end build + lifecycle test with curated ~11
 	echo "   captured $$(wc -l < /tmp/pathnames-before.txt) distribution pins"; \
 	echo ""; \
 	echo "==> Phase 4: Update Try::Tiny (real carton update in carton-runner container)"; \
-	cd "$$WORKDIR" && UBI_IMAGE="$(UBI_IMAGE)" IMAGE_NAME="$(IMAGE_NAME)" $(MAKE) update MODULE=Try::Tiny; \
+	cd "$$WORKDIR" && $(MAKE) update MODULE=Try::Tiny; \
 	echo ""; \
 	echo "==> Phase 5: Assert scoped update — only Try-Tiny pathname changed"; \
 	grep -E "^  [A-Za-z]" "$$WORKDIR/cpanfile.snapshot" | sort > /tmp/pathnames-after.txt; \
@@ -131,12 +136,12 @@ test-container-build: ## Full end-to-end build + lifecycle test with curated ~11
 	echo "==> Phase 6: Rebuild bundle + images from updated snapshot"; \
 	rm -f "$$WORKDIR/bundles/bundle-latest.tar.gz" "$$WORKDIR"/bundles/bundle-*.tar.gz; \
 	podman rmi -f $(IMAGE_NAME):carton-runner $(IMAGE_NAME):dev $(IMAGE_NAME):runtime 2>/dev/null || true; \
-	cd "$$WORKDIR" && UBI_IMAGE="$(UBI_IMAGE)" IMAGE_NAME="$(IMAGE_NAME)" $(MAKE) bundle; \
-	cd "$$WORKDIR" && UBI_IMAGE="$(UBI_IMAGE)" IMAGE_NAME="$(IMAGE_NAME)" $(MAKE) all; \
+	cd "$$WORKDIR" && $(MAKE) bundle; \
+	cd "$$WORKDIR" && $(MAKE) all; \
 	echo ""; \
 	echo "==> Phase 7: Verify upgraded modules load and Try::Tiny > 0.30"; \
-	cd "$$WORKDIR" && IMAGE_NAME="$(IMAGE_NAME)" $(MAKE) test-load-dev; \
-	cd "$$WORKDIR" && IMAGE_NAME="$(IMAGE_NAME)" $(MAKE) test-load-runtime; \
+	cd "$$WORKDIR" && $(MAKE) test-load-dev; \
+	cd "$$WORKDIR" && $(MAKE) test-load-runtime; \
 	podman run --rm -v "$$WORKDIR/test-load.pl:/tmp/test-load.pl:ro" $(IMAGE_NAME):dev \
 	    /opt/perl/bin/perl /tmp/test-load.pl --expect-try-tiny-min=0.31; \
 	echo ""; \

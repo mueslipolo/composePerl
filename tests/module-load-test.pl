@@ -26,9 +26,7 @@ my $config = TestConfig->new($config_file);
 # -------------------------------
 # Collect modules
 # -------------------------------
-open my $fh, '<', $cpanfile or die "Can't open $cpanfile: $!";
-my @modules = map { /requires\s+"([^"]+)"/ ? $1 : () } grep { !/^\s*#/ } <$fh>;
-close $fh;
+my @modules = TestConfig->parse_cpanfile_modules($cpanfile);
 
 # -------------------------------
 # Test modules

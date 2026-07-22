@@ -115,4 +115,17 @@ sub get_all_skip_test {
     return grep { $self->{modules}{$_}{skip_test} } keys %{$self->{modules}};
 }
 
+# Parses a cpanfile and returns the list of required module names, skipping
+# commented-out lines. Shared by module-load-test.pl and test-suite-runner.pl
+# so the parsing regex only has to be right in one place.
+sub parse_cpanfile_modules {
+    my ($class, $cpanfile) = @_;
+
+    open my $fh, '<', $cpanfile or die "Cannot open $cpanfile: $!";
+    my @modules = map { /requires\s+"([^"]+)"/ ? $1 : () } grep { !/^\s*#/ } <$fh>;
+    close $fh;
+
+    return @modules;
+}
+
 1;

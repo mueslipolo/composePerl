@@ -69,7 +69,6 @@ if [[ -n "${MODULE_NAME}" ]]; then
         -v "${PROJECT_ROOT}/cpanfile:/tmp/cpanfile:ro" \
         -v "${CONFIG_FILE}:/tmp/test-config.conf:ro" \
         -v "${PROJECT_ROOT}/tests/test-suite-runner.pl:/tmp/test-suite-runner.pl:ro" \
-        -v "${PROJECT_ROOT}/tests/test-single-module.pl:/tmp/test-single-module.pl:ro" \
         -v "${PROJECT_ROOT}/tests/TestConfig.pm:/tmp/TestConfig.pm:ro" \
         "${TEST_IMAGE}" \
         /opt/perl/bin/perl /tmp/test-suite-runner.pl "${MODULE_NAME}")
@@ -79,7 +78,6 @@ else
         -v "${PROJECT_ROOT}/cpanfile:/tmp/cpanfile:ro" \
         -v "${CONFIG_FILE}:/tmp/test-config.conf:ro" \
         -v "${PROJECT_ROOT}/tests/test-suite-runner.pl:/tmp/test-suite-runner.pl:ro" \
-        -v "${PROJECT_ROOT}/tests/test-single-module.pl:/tmp/test-single-module.pl:ro" \
         -v "${PROJECT_ROOT}/tests/TestConfig.pm:/tmp/TestConfig.pm:ro" \
         "${TEST_IMAGE}" \
         /opt/perl/bin/perl /tmp/test-suite-runner.pl)

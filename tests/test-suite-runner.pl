@@ -33,9 +33,7 @@ my $single_module = $ARGV[0];
 my $config = TestConfig->new($config_file);
 
 # Parse cpanfile
-open my $fh, '<', $cpanfile or die "Cannot open $cpanfile: $!";
-my @modules = map { /requires\s+"([^"]+)"/ ? $1 : () } grep { !/^\s*#/ } <$fh>;
-close $fh;
+my @modules = TestConfig->parse_cpanfile_modules($cpanfile);
 
 # Filter to single module if specified
 if ($single_module) {
