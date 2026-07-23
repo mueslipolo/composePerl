@@ -100,7 +100,7 @@ RUN rm -f /etc/pki/ca-trust/source/anchors/.gitkeep && update-ca-trust
 # added in dev-tools only) — no pipe also means no pipefail/SHELL concern.
 COPY lib-packages.conf /tmp/lib-packages.conf
 # hadolint ignore=DL3041,SC2046,SC2015
-RUN microdnf -y install $(awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} $1!=""{print $1}' /tmp/lib-packages.conf) \
+RUN microdnf -y install $(awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} {v=$1; gsub(/^[ \t]+|[ \t]+$/, "", v)} v!=""{print v}' /tmp/lib-packages.conf) \
   && rm -f /tmp/lib-packages.conf \
   && microdnf clean all \
   || { echo "==> microdnf failed - check http_proxy/https_proxy build-args and certs/ CA trust; see docs/proxy.md" >&2; exit 1; }
@@ -167,7 +167,7 @@ RUN microdnf -y install \
 # be available here, but there's no reason for the two stages to differ).
 COPY lib-packages.conf /tmp/lib-packages.conf
 # hadolint ignore=DL3041,SC2046,SC2015
-RUN microdnf -y install $(awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} $2!=""{print $2}' /tmp/lib-packages.conf) \
+RUN microdnf -y install $(awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} {v=$2; gsub(/^[ \t]+|[ \t]+$/, "", v)} v!=""{print v}' /tmp/lib-packages.conf) \
   && rm -f /tmp/lib-packages.conf \
   && microdnf clean all \
   || { echo "==> microdnf failed - check http_proxy/https_proxy build-args and certs/ CA trust; see docs/proxy.md" >&2; exit 1; }
