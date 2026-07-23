@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Mock perlbrew for the vm-*.bats test files. Behavior controlled via env
+# vars so each test can simulate a fresh VM, one with the pinned perl
+# already installed, or one with the lib already created — without a real
+# perlbrew install. Logs every invocation to $BATS_TEST_TMPDIR/perlbrew.log.
+#
+# MOCK_PERLBREW_LIST     - literal stdout for `perlbrew list` (default: empty)
+# MOCK_PERLBREW_LIB_LIST - literal stdout for `perlbrew lib list` (default: empty)
+
+set -eu
+
+echo "perlbrew $*" >> "${BATS_TEST_TMPDIR}/perlbrew.log"
+
+args=("$@")
+if [[ "${args[0]:-}" == "--notest" ]]; then
+    args=("${args[@]:1}")
+fi
+
+case "${args[0]:-}" in
+    list)
+        printf '%s\n' "${MOCK_PERLBREW_LIST:-}"
+        ;;
+    lib)
+        case "${args[1]:-}" in
+            list)   printf '%s\n' "${MOCK_PERLBREW_LIB_LIST:-}" ;;
+            create) : ;;
+            *) echo "mock perlbrew: unhandled 'lib ${args[1]:-}'" >&2; exit 1 ;;
+        esac
+        ;;
+    install)
+        : ;;
+    *)
+        echo "mock perlbrew: unhandled command '${args[0]:-}'" >&2
+        exit 1
+        ;;
+esac

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Mock update-ca-trust for vm-bootstrap-perlbrew.bats.
+set -eu
+echo "update-ca-trust $*" >> "${BATS_TEST_TMPDIR}/update-ca-trust.log"

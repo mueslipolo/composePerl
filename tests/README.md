@@ -21,6 +21,9 @@ Mocks `podman` with a logging stub (`tests/bats/mocks/podman`) that records ever
 | `fetch-artifacts.bats`       | Lockfile pinning (`artifacts.sha256`): first-run TOFU + independent MetaCPAN check for the Perl tarball, idempotent re-verification with no network calls, hard-fail on a pinned artifact's on-disk content diverging, hard-fail when an independent source disagrees, cpanm/cpm version-suffixed filename + stable symlink (a CPANM_VERSION/CPM_VERSION bump actually fetches the new version instead of silently reusing the old cache), proxy env var normalization/passthrough |
 | `container-build-setup.bats` | `tests/container-build/setup.sh` creates `certs/`, `bundles/`, and the expected symlinks in the isolated workspace                                                                                                                                                                                                                                                                                                                                                                 |
 | `project-structure.bats`     | Required files exist, scripts are executable                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `vm-bootstrap-perlbrew.bats` | Proxy env var normalization, custom CA install (`VM_CA_CERT`), skips work already done (perlbrew present / pinned Perl present), local-tarball vs. network install path                                                                                                                                                                                                                                                                                                            |
+| `vm-check-compat.bats`       | Perl-version and RHEL-major match/mismatch, missing `UBI_IMAGE`/`rpm` degrade to a skipped-with-warning check rather than a false failure                                                                                                                                                                                                                                                                                                                                          |
+| `vm-install-bundle.bats`     | Idempotent lib creation, the `perl-<version>@<lib>` on-disk naming (not the bare version), dropping `cpanfile.snapshot` before `cpm install`, correct `--resolver`/`-L` args                                                                                                                                                                                                                                                                                                       |
 
 ### Regression guards
 
@@ -210,14 +213,55 @@ See `tests/container-build/README.md` for the per-module coverage rationale.
 
 ______________________________________________________________________
 
+## Layer 5 — End-to-end VM deployment (perlbrew)
+
+**Runs in:** a container standing in for a bare legacy VM (not this repo's own Containerfile)
+**CI job:** `vm-deployment` (every push and PR)
+
+Exercises `docs/vm-deployment.md`'s entire procedure for real: builds a fresh
+bundle from the Layer 4 curated cpanfile, boots a plain UBI9 container (no
+perlbrew, no Perl beyond the base image — a stand-in for an independently
+managed VM) with the same `lib-packages.conf` runtime+devel packages and
+Oracle Instant Client the container path uses, then runs
+`scripts/vm-bootstrap-perlbrew.sh` (offline, using this repo's cached
+`artifacts/perl-<version>.tar.gz`), `scripts/vm-check-compat.sh`, and
+`scripts/vm-install-bundle.sh` against it in sequence, followed by
+`tests/container-build/test-load.pl` (a real version-bound assertion, not
+just a `require` loop) and `tests/module-load-test.pl` — including
+`DBD::Oracle`, `DBD::Pg`, `DBD::mysql`, `XML::LibXML`, and `GD`, none of
+which load without the matching runtime libraries actually being present.
+
+It then runs `scripts/vm-bootstrap-perlbrew.sh` twice more against a fresh
+container, through `tests/mitm-proxy/`'s real TLS-inspecting proxy: once
+without the CA trusted (must fail — proves the mechanism isn't a no-op) and
+once with `VM_CA_CERT` set (must succeed, with the proxy's own access log as
+evidence real content flowed through it).
+
+## Enterprise proxy + custom CA (`tests/mitm-proxy/`)
+
+**CI job:** `enterprise-proxy` (every push and PR)
+
+The same real TLS-inspecting proxy technique (not a plain CONNECT-tunnel
+mock — see `tests/mitm-proxy/README.md`), applied to the two network-touching
+paths `vm-deployment` doesn't cover: `scripts/fetch-artifacts.sh` (host-side
+curl, `CURL_CA_BUNDLE` standing in for a corp-managed system trust store) and
+the Containerfile's `perl-src` stage (`microdnf`, via `certs/` +
+`update-ca-trust`). Each gets a negative case (proxy set, CA not trusted —
+must fail) and a positive case (CA trusted — must succeed, real content
+flows through), so neither test can pass by accident.
+
+______________________________________________________________________
+
 ## CI overview
 
 ```
 .github/workflows/test.yml
-├── lint job             — hadolint (both Containerfiles) + shellcheck (scripts/*.sh)
-├── bats job             — Layer 1, ~10 sec, no external deps
-├── integration job      — Layer 2, ~3 min, host-side carton→cpm pipeline (4 modules)
-└── container-build job  — Layer 4, ~10-16 min, full Containerfile build (11 modules, real Oracle)
+├── lint job              — hadolint (both Containerfiles) + shellcheck (scripts/*.sh)
+├── bats job              — Layer 1, ~10 sec, no external deps
+├── integration job       — Layer 2, ~3 min, host-side carton→cpm pipeline (4 modules)
+├── container-build job   — Layer 4, ~10-16 min, full Containerfile build (11 modules, real Oracle)
+├── vm-deployment job     — Layer 5, real perlbrew install + bundle deploy + proxy/CA verification
+└── enterprise-proxy job  — fetch-artifacts.sh + Containerfile build, real proxy/CA verification
 ```
 
 Layer 3 (container tests against the full ~700-module production `cpanfile.snapshot`, not the curated Layer 4 subset) is not wired into public CI — it needs a corresponding production bundle. Run it locally (`make test-load-dev`, `make test-full`) against a real production build when validating one.

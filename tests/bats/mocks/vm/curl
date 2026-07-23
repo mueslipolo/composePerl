@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Mock curl for vm-bootstrap-perlbrew.bats. Logs the invocation (including
+# the proxy env vars actually seen, proving they reached the real
+# downstream consumer) and, when the URL matches perlbrew's installer,
+# prints a harmless script to stdout so `| bash` completes without ever
+# touching the network.
+set -eu
+
+echo "curl $* [http_proxy=${http_proxy:-} https_proxy=${https_proxy:-} no_proxy=${no_proxy:-}]" >> "${BATS_TEST_TMPDIR}/curl.log"
+
+for arg in "$@"; do
+    if [[ "$arg" == *install.perlbrew.pl* ]]; then
+        echo 'echo mock-perlbrew-installer-ran'
+        exit 0
+    fi
+done
+
+echo "mock curl: unhandled args: $*" >&2
+exit 1

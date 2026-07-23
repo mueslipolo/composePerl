@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Mock cpm for vm-install-bundle.bats. Logs the invocation; doesn't actually
+# install anything (real cpm behavior against a real bundle is exercised for
+# real in the vm-deployment CI job, not here). Also records whether
+# cpanfile.snapshot was still present alongside the --cpanfile path at call
+# time, so a test can assert vm-install-bundle.sh dropped it first.
+set -eu
+
+echo "cpm $*" >> "${BATS_TEST_TMPDIR}/cpm.log"
+
+cpanfile=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --cpanfile) cpanfile="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+
+if [[ -n "${cpanfile}" ]]; then
+    snapshot="$(dirname "${cpanfile}")/cpanfile.snapshot"
+    if [[ -f "${snapshot}" ]]; then
+        echo "SNAPSHOT_PRESENT" >> "${BATS_TEST_TMPDIR}/cpm-snapshot-check.log"
+    else
+        echo "SNAPSHOT_ABSENT" >> "${BATS_TEST_TMPDIR}/cpm-snapshot-check.log"
+    fi
+fi

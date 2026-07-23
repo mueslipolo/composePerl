@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Mock rpm for vm-check-compat.bats. Only implements `-E %{rhel}`.
+# MOCK_RPM_RHEL - value to print (default: 9)
+set -eu
+
+echo "rpm $*" >> "${BATS_TEST_TMPDIR}/rpm.log"
+
+if [[ "${1:-}" == "-E" ]]; then
+    printf '%s\n' "${MOCK_RPM_RHEL:-9}"
+    exit 0
+fi
+
+echo "mock rpm: unhandled args: $*" >&2
+exit 1

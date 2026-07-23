@@ -13,3 +13,7 @@ certs/*
 # Test reports
 test-reports/
 .claude/
+
+# Python bytecode (tests/mitm-proxy/)
+__pycache__/
+*.pyc

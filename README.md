@@ -250,24 +250,31 @@ Five-stage Containerfile build (`perl-src → base → dev-tools → dev`, with 
 │   ├── status.sh              # Bundle and image status checker
 │   ├── fetch-artifacts.sh     # Populates artifacts/ with hash-pinned downloads
 │   ├── test-load-modules.sh   # Quick module smoke test runner
-│   └── test-run-suites.sh     # Full CPAN test suite runner
+│   ├── test-run-suites.sh     # Full CPAN test suite runner
+│   ├── vm-bootstrap-perlbrew.sh # Installs perlbrew + pinned Perl onto a VM
+│   ├── vm-check-compat.sh     # Version-compatibility gate for a VM bundle install
+│   └── vm-install-bundle.sh   # Installs an offline CPAN bundle into a perlbrew lib
 ├── tests/
 │   ├── bats/                  # Shell-level unit tests (bats-core)
-│   │   ├── mocks/              # Mock podman/curl that log invocations
+│   │   ├── mocks/              # Mock podman/curl/perlbrew/etc. that log invocations
 │   │   ├── deps.bats
 │   │   ├── build-image.bats
 │   │   ├── status.bats
 │   │   ├── fetch-artifacts.bats
 │   │   ├── container-build-setup.bats
+│   │   ├── vm-bootstrap-perlbrew.bats
+│   │   ├── vm-check-compat.bats
+│   │   ├── vm-install-bundle.bats
 │   │   └── project-structure.bats
 │   ├── integration/            # End-to-end Carton→cpm pipeline test
 │   ├── container-build/        # Curated ~11-module end-to-end Containerfile build test
+│   ├── mitm-proxy/             # Real TLS-inspecting proxy for enterprise proxy/CA verification
 │   ├── test-config.conf        # Per-module container test configuration
 │   ├── TestConfig.pm           # Configuration parser
 │   ├── module-load-test.pl    # Container smoke test script
 │   ├── test-suite-runner.pl   # Full CPAN test suite runner
 │   └── README.md              # Test system documentation
-├── .github/workflows/test.yml # CI: lint + bats + integration + container-build jobs
+├── .github/workflows/test.yml # CI: lint + bats + integration + container-build + vm-deployment + enterprise-proxy jobs
 ├── bundles/                    # Generated CPAN bundles (gitignored)
 │   ├── bundle-<hash>.tar.gz
 │   ├── bundle-<hash>.build-info  # PERL_VERSION + UBI_IMAGE this bundle was built against

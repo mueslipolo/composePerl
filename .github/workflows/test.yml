@@ -17,7 +17,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y shellcheck
-          shellcheck scripts/*.sh tests/container-build/setup.sh
+          shellcheck scripts/*.sh tests/container-build/setup.sh tests/mitm-proxy/generate-test-ca.sh
 
       - name: Install hadolint
         run: |
@@ -223,3 +223,280 @@ jobs:
             exit 1
           fi
           echo "OK: bundle-hash label matches snapshot ($image_hash)"
+
+  enterprise-proxy:
+    # Validates enterprise-proxy + custom-CA support against a REAL
+    # TLS-inspecting (MITM) proxy (tests/mitm-proxy/) — not a mock. A plain
+    # CONNECT-tunnel proxy never touches the TLS bytes, so it can't prove CA
+    # trust actually matters; this exercises a genuine interception scenario
+    # for the two network-touching paths outside the VM/perlbrew path
+    # (covered separately by the vm-deployment job): scripts/fetch-artifacts.sh
+    # (host-side curl) and the Containerfile's perl-src stage (microdnf, via
+    # certs/ + update-ca-trust).
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install podman
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y podman
+
+      - name: Cache artifacts/ and artifacts.sha256
+        uses: actions/cache@v5
+        with:
+          path: |
+            artifacts
+            artifacts.sha256
+          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh') }}
+
+      - name: Fetch artifacts (skipped when cache hit) — feeds the Containerfile-build case below
+        run: scripts/fetch-artifacts.sh
+
+      - name: Generate throwaway test CA + leaf cert
+        run: |
+          tests/mitm-proxy/generate-test-ca.sh /tmp/test-ca \
+            www.cpan.org fastapi.metacpan.org raw.githubusercontent.com \
+            download.oracle.com www.oracle.com cdn-ubi.redhat.com
+
+      - name: Start the MITM proxy
+        run: |
+          nohup python3 tests/mitm-proxy/mitm_proxy.py 8899 /tmp/test-ca/leaf.pem /tmp/test-ca/leaf.key \
+            > /tmp/mitm-proxy.log 2>&1 &
+          sleep 1
+
+      - name: fetch-artifacts.sh through the proxy WITHOUT CA trust (must fail)
+        run: |
+          rm -rf /tmp/fetch-test-negative
+          mkdir -p /tmp/fetch-test-negative/scripts /tmp/fetch-test-negative/artifacts
+          cp scripts/fetch-artifacts.sh /tmp/fetch-test-negative/scripts/
+          cp Containerfile /tmp/fetch-test-negative/
+          cd /tmp/fetch-test-negative
+          if http_proxy=http://127.0.0.1:8899 https_proxy=http://127.0.0.1:8899 bash scripts/fetch-artifacts.sh; then
+            echo "FAIL: fetch-artifacts.sh succeeded through the MITM proxy without CA trust (should have failed TLS verification)"
+            exit 1
+          fi
+          echo "OK: correctly failed without CA trust"
+
+      - name: fetch-artifacts.sh through the proxy WITH CA trust (must succeed)
+        run: |
+          rm -rf /tmp/fetch-test-positive
+          mkdir -p /tmp/fetch-test-positive/scripts /tmp/fetch-test-positive/artifacts
+          cp scripts/fetch-artifacts.sh /tmp/fetch-test-positive/scripts/
+          cp Containerfile /tmp/fetch-test-positive/
+          # Reuse the already-fetched (licensed) Oracle zips — only
+          # perl/cpanm/cpm need a real fetch to prove the mechanism.
+          cp artifacts/instantclient-*.zip /tmp/fetch-test-positive/artifacts/
+          cd /tmp/fetch-test-positive
+          http_proxy=http://127.0.0.1:8899 https_proxy=http://127.0.0.1:8899 \
+            CURL_CA_BUNDLE=/tmp/test-ca/test-ca.pem \
+            bash scripts/fetch-artifacts.sh
+          echo "OK: succeeded with CA trust; artifacts fetched through the proxy"
+
+      - name: Containerfile perl-src stage through the proxy WITHOUT CA trust (must fail)
+        run: |
+          rm -rf /tmp/build-test-negative
+          mkdir -p /tmp/build-test-negative/artifacts /tmp/build-test-negative/certs
+          cp Containerfile /tmp/build-test-negative/
+          PERL_VERSION="$(sed -n 's/^ARG PERL_VERSION=//p' Containerfile)"
+          cp "artifacts/perl-${PERL_VERSION}.tar.gz" /tmp/build-test-negative/artifacts/
+          touch /tmp/build-test-negative/certs/.gitkeep
+          cd /tmp/build-test-negative
+          if podman build --no-cache --target perl-src -t proxy-negative-test:perl-src \
+              --build-arg "PERL_VERSION=${PERL_VERSION}" \
+              --build-arg http_proxy=http://host.containers.internal:8899 \
+              --build-arg https_proxy=http://host.containers.internal:8899 .; then
+            echo "FAIL: Containerfile build succeeded through the MITM proxy without CA trust"
+            exit 1
+          fi
+          echo "OK: correctly failed without CA trust"
+
+      - name: Containerfile perl-src stage through the proxy WITH CA trust (must succeed)
+        run: |
+          rm -rf /tmp/build-test-positive
+          mkdir -p /tmp/build-test-positive/artifacts /tmp/build-test-positive/certs
+          cp Containerfile /tmp/build-test-positive/
+          PERL_VERSION="$(sed -n 's/^ARG PERL_VERSION=//p' Containerfile)"
+          cp "artifacts/perl-${PERL_VERSION}.tar.gz" /tmp/build-test-positive/artifacts/
+          cp /tmp/test-ca/test-ca.pem /tmp/build-test-positive/certs/
+          cd /tmp/build-test-positive
+          podman build --no-cache --target perl-src -t proxy-positive-test:perl-src \
+            --build-arg "PERL_VERSION=${PERL_VERSION}" \
+            --build-arg http_proxy=http://host.containers.internal:8899 \
+            --build-arg https_proxy=http://host.containers.internal:8899 .
+          echo "OK: succeeded with CA trust; perl-src built through the proxy"
+
+      - name: Show proxy access log (evidence real traffic flowed through it)
+        if: always()
+        run: cat /tmp/mitm-proxy.log
+
+  vm-deployment:
+    # Full end-to-end perlbrew/VM deployment test (docs/vm-deployment.md)
+    # against the curated ~11-module test cpanfile. Simulates a bare legacy
+    # VM with a plain UBI9 container (not this repo's own Containerfile) and
+    # runs the real scripts/vm-*.sh against it, including a real enterprise
+    # proxy + custom CA pass (tests/mitm-proxy/, same tool as enterprise-proxy).
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install podman
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y podman
+
+      - name: Cache artifacts/ and artifacts.sha256
+        uses: actions/cache@v5
+        with:
+          path: |
+            artifacts
+            artifacts.sha256
+          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh') }}
+
+      - name: Fetch artifacts (skipped when cache hit)
+        run: scripts/fetch-artifacts.sh
+
+      - name: Assemble container-build workspace
+        id: workspace
+        run: echo "WORKDIR=$(bash tests/container-build/setup.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: make bundle (curated ~11-module test cpanfile)
+        working-directory: ${{ steps.workspace.outputs.WORKDIR }}
+        run: make bundle
+
+      - name: Start the simulated VM container (plain UBI9, no perlbrew)
+        run: |
+          podman run -d --name vm-deploy-test registry.access.redhat.com/ubi9/ubi-minimal:9.6 sleep infinity
+          podman exec vm-deploy-test microdnf install -y perl gcc make tar gzip findutils patch unzip
+
+      - name: Install runtime + devel system libraries (same lib-packages.conf the container path uses)
+        run: |
+          podman cp lib-packages.conf vm-deploy-test:/tmp/lib-packages.conf
+          podman exec vm-deploy-test bash -c '
+            microdnf -y install $(awk -F"|" "/^[[:space:]]*#/{next} /^[[:space:]]*\$/{next} \$1!=\"\"{print \$1}" /tmp/lib-packages.conf)
+            microdnf -y install $(awk -F"|" "/^[[:space:]]*#/{next} /^[[:space:]]*\$/{next} \$2!=\"\"{print \$2}" /tmp/lib-packages.conf)
+            rm -f /tmp/lib-packages.conf
+          '
+
+      - name: Stage Oracle Instant Client (same as dev-tools stage)
+        run: |
+          podman cp artifacts/instantclient-basiclite-linux.x64-23.8.0.25.04.zip vm-deploy-test:/tmp/
+          podman cp artifacts/instantclient-sdk-linux.x64-23.8.0.25.04.zip vm-deploy-test:/tmp/
+          podman exec vm-deploy-test bash -c '
+            unzip -o -q /tmp/instantclient-basiclite*.zip -d /opt/oracle
+            mv /opt/oracle/instantclient_* /opt/oracle/instantclient
+            rm -f /opt/oracle/instantclient/*.jar /opt/oracle/instantclient/libocci.so
+            unzip -o -q /tmp/instantclient-sdk*.zip -d /opt/oracle-sdk-extract
+            mv /opt/oracle-sdk-extract/instantclient_*/sdk /opt/oracle/instantclient/sdk
+            rm -rf /opt/oracle-sdk-extract /tmp/instantclient-*.zip
+          '
+
+      - name: Stage scripts, cpm, and the bundle onto the simulated VM
+        run: |
+          PERL_VERSION="$(sed -n 's/^ARG PERL_VERSION=//p' Containerfile)"
+          BUNDLE_DIR="${{ steps.workspace.outputs.WORKDIR }}/bundles"
+          podman exec vm-deploy-test mkdir -p /vm-deploy
+          podman cp scripts/vm-bootstrap-perlbrew.sh vm-deploy-test:/vm-deploy/
+          podman cp scripts/vm-check-compat.sh vm-deploy-test:/vm-deploy/
+          podman cp scripts/vm-install-bundle.sh vm-deploy-test:/vm-deploy/
+          podman cp "artifacts/$(readlink artifacts/cpm)" vm-deploy-test:/vm-deploy/cpm
+          podman cp "artifacts/perl-${PERL_VERSION}.tar.gz" vm-deploy-test:/vm-deploy/perl-src.tar.gz
+          podman cp "${BUNDLE_DIR}/$(readlink "${BUNDLE_DIR}/bundle-latest.tar.gz")" vm-deploy-test:/vm-deploy/bundle.tar.gz
+          podman cp "${BUNDLE_DIR}/$(readlink "${BUNDLE_DIR}/bundle-latest.build-info")" vm-deploy-test:/vm-deploy/bundle.build-info
+          podman exec vm-deploy-test chmod +x /vm-deploy/vm-bootstrap-perlbrew.sh /vm-deploy/vm-check-compat.sh /vm-deploy/vm-install-bundle.sh /vm-deploy/cpm
+
+      - name: Bootstrap perlbrew + pinned Perl (offline, using the cached source tarball)
+        run: |
+          podman exec -w /vm-deploy vm-deploy-test bash -c '
+            export HOME=/root
+            PERL_VERSION="$(sed -n "s/^PERL_VERSION=//p" bundle.build-info)"
+            ./vm-bootstrap-perlbrew.sh "$PERL_VERSION" ./perl-src.tar.gz
+          '
+
+      - name: Version-compatibility gate
+        run: |
+          podman exec -w /vm-deploy vm-deploy-test bash -c '
+            export HOME=/root
+            export PERLBREW_ROOT=/root/perl5/perlbrew
+            ./vm-check-compat.sh bundle.build-info
+          '
+
+      - name: Install the bundle into a perlbrew lib
+        run: |
+          podman exec -w /vm-deploy vm-deploy-test bash -c '
+            export HOME=/root
+            export PERLBREW_ROOT=/root/perl5/perlbrew
+            export LD_LIBRARY_PATH=/opt/oracle/instantclient
+            export ORACLE_HOME=/opt/oracle/instantclient
+            ./vm-install-bundle.sh bundle.tar.gz bundle.build-info myapp ./cpm
+          '
+
+      - name: Verify with a real test app, not just a require loop
+        run: |
+          podman exec vm-deploy-test mkdir -p /vm-deploy/tests
+          podman cp tests/module-load-test.pl vm-deploy-test:/vm-deploy/tests/
+          podman cp tests/TestConfig.pm vm-deploy-test:/vm-deploy/tests/
+          podman cp tests/container-build/test-load.pl vm-deploy-test:/vm-deploy/tests/
+          podman cp tests/container-build/cpanfile vm-deploy-test:/vm-deploy/tests/
+          podman exec vm-deploy-test bash -c '
+            export HOME=/root
+            export PERLBREW_ROOT=/root/perl5/perlbrew
+            export PERLBREW_PERL="perl-$(sed -n "s/^PERL_VERSION=//p" /vm-deploy/bundle.build-info)"
+            export PERLBREW_LIB=myapp
+            export LD_LIBRARY_PATH=/opt/oracle/instantclient
+            export ORACLE_HOME=/opt/oracle/instantclient
+            source /root/perl5/perlbrew/etc/bashrc
+            cp /vm-deploy/tests/cpanfile /tmp/cpanfile
+            : > /tmp/test-config.conf
+            perl /vm-deploy/tests/module-load-test.pl
+            perl /vm-deploy/tests/test-load.pl --expect-try-tiny-max=0.30
+          '
+
+      - name: Enterprise proxy + custom CA — negative case (must fail without VM_CA_CERT)
+        run: |
+          tests/mitm-proxy/generate-test-ca.sh /tmp/vm-test-ca install.perlbrew.pl raw.githubusercontent.com
+          nohup python3 tests/mitm-proxy/mitm_proxy.py 8898 /tmp/vm-test-ca/leaf.pem /tmp/vm-test-ca/leaf.key \
+            > /tmp/vm-mitm-proxy.log 2>&1 &
+          sleep 1
+
+          podman run -d --name vm-proxy-test registry.access.redhat.com/ubi9/ubi-minimal:9.6 sleep infinity
+          podman exec vm-proxy-test microdnf install -y perl gcc make tar gzip findutils patch
+          podman exec vm-proxy-test mkdir -p /vm-deploy
+          podman cp scripts/vm-bootstrap-perlbrew.sh vm-proxy-test:/vm-deploy/
+          PERL_VERSION="$(sed -n 's/^ARG PERL_VERSION=//p' Containerfile)"
+          podman cp "artifacts/perl-${PERL_VERSION}.tar.gz" vm-proxy-test:/vm-deploy/perl-src.tar.gz
+          podman exec vm-proxy-test chmod +x /vm-deploy/vm-bootstrap-perlbrew.sh
+
+          if podman exec -w /vm-deploy vm-proxy-test bash -c "
+              export HOME=/root
+              export https_proxy=http://host.containers.internal:8898
+              export http_proxy=http://host.containers.internal:8898
+              ./vm-bootstrap-perlbrew.sh ${PERL_VERSION} ./perl-src.tar.gz
+          "; then
+            echo "FAIL: vm-bootstrap-perlbrew.sh succeeded through the MITM proxy without VM_CA_CERT"
+            exit 1
+          fi
+          echo "OK: correctly failed without CA trust"
+
+      - name: Enterprise proxy + custom CA — positive case (must succeed with VM_CA_CERT)
+        run: |
+          podman cp /tmp/vm-test-ca/test-ca.pem vm-proxy-test:/vm-deploy/corp-ca.pem
+          podman exec vm-proxy-test rm -rf /root/perl5
+          PERL_VERSION="$(sed -n 's/^ARG PERL_VERSION=//p' Containerfile)"
+          podman exec -w /vm-deploy vm-proxy-test bash -c "
+            export HOME=/root
+            export https_proxy=http://host.containers.internal:8898
+            export http_proxy=http://host.containers.internal:8898
+            export VM_CA_CERT=/vm-deploy/corp-ca.pem
+            ./vm-bootstrap-perlbrew.sh ${PERL_VERSION} ./perl-src.tar.gz
+          "
+          echo "OK: succeeded with VM_CA_CERT trust; perlbrew installed through the proxy"
+
+      - name: Show proxy access logs (evidence real traffic flowed through them)
+        if: always()
+        run: |
+          echo "=== vm-mitm-proxy.log ===" ; cat /tmp/vm-mitm-proxy.log || true
