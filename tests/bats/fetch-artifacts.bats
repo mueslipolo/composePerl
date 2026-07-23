@@ -188,3 +188,31 @@ cpm_version() {
   [[ "$output" == *"https_proxy=http://proxy.corp.example:8080"* ]]
   grep -q "https_proxy=http://proxy.corp.example:8080 no_proxy=localhost,127.0.0.1" "$BATS_TEST_TMPDIR/curl.log"
 }
+
+# ── Network/TLS failure diagnostics ───────────────────────────────────────────
+
+@test "shows a proxy/CA hint when a download fails with a curl network exit code" {
+  export FETCH_MOCK_DOWNLOAD_EXIT_CODE=60   # SSL cert problem
+  run_script
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Network/TLS error (exit 60)"* ]]
+  [[ "$output" == *"http_proxy / https_proxy / no_proxy"* ]]
+  [[ "$output" == *"docs/proxy.md"* ]]
+}
+
+@test "shows the hint for a connection-refused style failure too" {
+  export FETCH_MOCK_DOWNLOAD_EXIT_CODE=7   # couldn't connect
+  run_script
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Network/TLS error (exit 7)"* ]]
+}
+
+@test "does not show the proxy/CA hint for an unrelated failure (hash mismatch)" {
+  run_script
+  [ "$status" -eq 0 ]
+  echo "tampered" > "$PROJECT_DIR/artifacts/cpanm"
+  run_script
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ERROR: sha256 mismatch for cpanm"* ]]
+  [[ "$output" != *"Network/TLS error"* ]]
+}

@@ -118,3 +118,36 @@ run_script() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"No proxy configured"* ]]
 }
+
+# ── Network/TLS failure diagnostics ───────────────────────────────────────────
+
+@test "shows a proxy/CA hint when the bootstrap curl call fails with a network exit code" {
+  export MOCK_CURL_EXIT_CODE=60   # SSL cert problem
+  run_script "5.28.1"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Network/TLS error (exit 60)"* ]]
+  [[ "$output" == *"http_proxy / https_proxy / no_proxy"* ]]
+  [[ "$output" == *"docs/proxy.md"* ]]
+}
+
+@test "shows the hint when perlbrew's own internal fetch fails (non-curl exit code)" {
+  # perlbrew wraps its own internal fetch failures (patchperl, Perl source)
+  # in its own exit code, not curl's raw one — this is the command-text
+  # fallback path, not the exit-code case list.
+  stage_perlbrew_installed
+  export MOCK_PERLBREW_LIST=""
+  export MOCK_PERLBREW_INSTALL_EXIT_CODE=4
+  run_script "5.28.1"
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"Network/TLS error (exit 4)"* ]]
+  [[ "$output" == *"docs/proxy.md"* ]]
+}
+
+@test "does not show the proxy/CA hint for an unrelated failure (missing VM_CA_CERT)" {
+  stage_perlbrew_installed
+  export VM_CA_CERT="$BATS_TEST_TMPDIR/does-not-exist.pem"
+  run_script "5.28.1"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR"* ]]
+  [[ "$output" != *"Network/TLS error"* ]]
+}

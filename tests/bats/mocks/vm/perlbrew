@@ -4,8 +4,14 @@
 # already installed, or one with the lib already created — without a real
 # perlbrew install. Logs every invocation to $BATS_TEST_TMPDIR/perlbrew.log.
 #
-# MOCK_PERLBREW_LIST     - literal stdout for `perlbrew list` (default: empty)
-# MOCK_PERLBREW_LIB_LIST - literal stdout for `perlbrew lib list` (default: empty)
+# MOCK_PERLBREW_LIST       - literal stdout for `perlbrew list` (default: empty)
+# MOCK_PERLBREW_LIB_LIST   - literal stdout for `perlbrew lib list` (default: empty)
+# MOCK_PERLBREW_INSTALL_EXIT_CODE - if set, `perlbrew install` exits with this
+#                                    code instead of succeeding (simulates a
+#                                    real perlbrew-internal fetch failure,
+#                                    e.g. patchperl/Perl-source — perlbrew
+#                                    wraps these in its own exit code, not a
+#                                    raw curl one)
 
 set -eu
 
@@ -28,7 +34,11 @@ case "${args[0]:-}" in
         esac
         ;;
     install)
-        : ;;
+        if [[ -n "${MOCK_PERLBREW_INSTALL_EXIT_CODE:-}" ]]; then
+            echo "perlbrew: mock internal fetch failure (exit ${MOCK_PERLBREW_INSTALL_EXIT_CODE})" >&2
+            exit "${MOCK_PERLBREW_INSTALL_EXIT_CODE}"
+        fi
+        ;;
     *)
         echo "mock perlbrew: unhandled command '${args[0]:-}'" >&2
         exit 1

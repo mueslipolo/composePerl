@@ -14,6 +14,9 @@
 #                                   disagrees test)
 # FETCH_MOCK_ARTIFACTS_DIR        - where to find the just-downloaded perl tarball when
 #                                   computing the default (self-consistent) MetaCPAN hash
+# FETCH_MOCK_DOWNLOAD_EXIT_CODE   - if set, a download (-o) call exits with this code
+#                                   instead of succeeding (simulates a real curl
+#                                   network/TLS failure, e.g. 7 or 60)
 
 set -eu
 
@@ -39,6 +42,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -n "$dest" ]]; then
+    if [[ -n "${FETCH_MOCK_DOWNLOAD_EXIT_CODE:-}" ]]; then
+        echo "curl: mock network/TLS failure (exit ${FETCH_MOCK_DOWNLOAD_EXIT_CODE})" >&2
+        exit "${FETCH_MOCK_DOWNLOAD_EXIT_CODE}"
+    fi
     # Case 1: a download with -o. Deterministic-per-destination content so
     # idempotent re-runs (and the MetaCPAN self-check below) see stable hashes.
     final_name="$(basename "$dest")"

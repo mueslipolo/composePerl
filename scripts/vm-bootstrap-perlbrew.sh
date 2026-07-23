@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 # vm-bootstrap-perlbrew.sh - Install perlbrew + a pinned Perl version onto a VM
 #
@@ -46,6 +46,30 @@ if [[ -n "${https_proxy}" || -n "${http_proxy}" ]]; then
 else
     echo "==> No proxy configured"
 fi
+
+# Prints a targeted hint if the failure that just aborted the script (under
+# set -e) looks network/TLS-related, so a raw curl/perlbrew error doesn't
+# require re-deriving "is this a proxy problem?" by hand. Silent for
+# anything else (e.g. a missing VM_CA_CERT file) — it can't misdirect if it
+# only speaks up for the failures it actually recognizes. perlbrew wraps its
+# own internal fetches (patchperl, Perl source) in its own exit codes, not
+# curl's raw ones (confirmed: a failed patchperl fetch exits 4) — so this
+# also matches on the failing command mentioning curl/perlbrew, not just the
+# exit code.
+_diagnose_network_failure() {
+    local exit_code="$1" failing_cmd="$2"
+    case "${exit_code}" in
+        6|7|28|35|51|52|55|56|58|60|77|82|83) ;;  # curl network/TLS exit codes
+        *) [[ "${failing_cmd}" == *curl* || "${failing_cmd}" == *perlbrew* ]] || return 0 ;;
+    esac
+    echo "" >&2
+    echo "==> Network/TLS error (exit ${exit_code}) while running: ${failing_cmd}" >&2
+    echo "    If you're behind a corporate proxy, check:" >&2
+    echo "      - http_proxy / https_proxy / no_proxy are set and correct" >&2
+    echo "      - your CA trust store (VM_CA_CERT) trusts the proxy" >&2
+    echo "    See docs/proxy.md for details." >&2
+}
+trap '_diagnose_network_failure $? "$BASH_COMMAND"' ERR
 
 # Optional custom CA for a TLS-inspecting corporate proxy — the VM-side
 # equivalent of the Containerfile's certs/ mechanism (see docs/proxy.md).

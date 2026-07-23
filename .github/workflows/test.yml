@@ -274,11 +274,18 @@ jobs:
           cp scripts/fetch-artifacts.sh /tmp/fetch-test-negative/scripts/
           cp Containerfile /tmp/fetch-test-negative/
           cd /tmp/fetch-test-negative
-          if http_proxy=http://127.0.0.1:8899 https_proxy=http://127.0.0.1:8899 bash scripts/fetch-artifacts.sh; then
+          if http_proxy=http://127.0.0.1:8899 https_proxy=http://127.0.0.1:8899 \
+              bash scripts/fetch-artifacts.sh > /tmp/fetch-negative.log 2>&1; then
             echo "FAIL: fetch-artifacts.sh succeeded through the MITM proxy without CA trust (should have failed TLS verification)"
+            cat /tmp/fetch-negative.log
             exit 1
           fi
-          echo "OK: correctly failed without CA trust"
+          cat /tmp/fetch-negative.log
+          if ! grep -q "Network/TLS error" /tmp/fetch-negative.log; then
+            echo "FAIL: expected the automatic proxy/CA hint in the output, but it didn't appear"
+            exit 1
+          fi
+          echo "OK: correctly failed without CA trust, and the hint fired"
 
       - name: fetch-artifacts.sh through the proxy WITH CA trust (must succeed)
         run: |
@@ -307,11 +314,17 @@ jobs:
           if podman build --no-cache --target perl-src -t proxy-negative-test:perl-src \
               --build-arg "PERL_VERSION=${PERL_VERSION}" \
               --build-arg http_proxy=http://host.containers.internal:8899 \
-              --build-arg https_proxy=http://host.containers.internal:8899 .; then
+              --build-arg https_proxy=http://host.containers.internal:8899 . > /tmp/build-negative.log 2>&1; then
             echo "FAIL: Containerfile build succeeded through the MITM proxy without CA trust"
+            cat /tmp/build-negative.log
             exit 1
           fi
-          echo "OK: correctly failed without CA trust"
+          cat /tmp/build-negative.log
+          if ! grep -q "microdnf failed - check http_proxy/https_proxy" /tmp/build-negative.log; then
+            echo "FAIL: expected the automatic proxy/CA hint in the build output, but it didn't appear"
+            exit 1
+          fi
+          echo "OK: correctly failed without CA trust, and the hint fired"
 
       - name: Containerfile perl-src stage through the proxy WITH CA trust (must succeed)
         run: |
@@ -476,11 +489,17 @@ jobs:
               export https_proxy=http://host.containers.internal:8898
               export http_proxy=http://host.containers.internal:8898
               ./vm-bootstrap-perlbrew.sh ${PERL_VERSION} ./perl-${PERL_VERSION}.tar.gz
-          "; then
+          " > /tmp/vm-negative.log 2>&1; then
             echo "FAIL: vm-bootstrap-perlbrew.sh succeeded through the MITM proxy without VM_CA_CERT"
+            cat /tmp/vm-negative.log
             exit 1
           fi
-          echo "OK: correctly failed without CA trust"
+          cat /tmp/vm-negative.log
+          if ! grep -q "Network/TLS error" /tmp/vm-negative.log; then
+            echo "FAIL: expected the automatic proxy/CA hint in the output, but it didn't appear"
+            exit 1
+          fi
+          echo "OK: correctly failed without CA trust, and the hint fired"
 
       - name: Enterprise proxy + custom CA — positive case (must succeed with VM_CA_CERT)
         run: |

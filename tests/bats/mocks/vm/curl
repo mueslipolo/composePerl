@@ -4,9 +4,17 @@
 # downstream consumer) and, when the URL matches perlbrew's installer,
 # prints a harmless script to stdout so `| bash` completes without ever
 # touching the network.
+#
+# MOCK_CURL_EXIT_CODE - if set, exit with this code instead of succeeding
+#                        (simulates a real curl network/TLS failure)
 set -eu
 
 echo "curl $* [http_proxy=${http_proxy:-} https_proxy=${https_proxy:-} no_proxy=${no_proxy:-}]" >> "${BATS_TEST_TMPDIR}/curl.log"
+
+if [[ -n "${MOCK_CURL_EXIT_CODE:-}" ]]; then
+    echo "curl: mock network/TLS failure (exit ${MOCK_CURL_EXIT_CODE})" >&2
+    exit "${MOCK_CURL_EXIT_CODE}"
+fi
 
 for arg in "$@"; do
     if [[ "$arg" == *install.perlbrew.pl* ]]; then

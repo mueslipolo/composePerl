@@ -107,3 +107,24 @@ export no_proxy=localhost,127.0.0.1,.internal.corp.example
   accidentally match the CPAN mirror's hostname, and that the proxy itself
   supports the `CONNECT` method (some restrictive proxies only allow it to a
   small allowlist of ports/hosts).
+
+### Reading the automatic network/TLS hint
+
+`scripts/fetch-artifacts.sh` and `scripts/vm-bootstrap-perlbrew.sh` print a
+targeted hint automatically when a failure looks network/TLS-related — no
+need to guess from a raw `curl` error. The Containerfile's `microdnf`
+installs and `Containerfile.deps`'s `cpanm`/`carton install` print an
+equivalent line before failing the build. It stays silent for anything
+unrelated (a hash mismatch, a missing file), so if you don't see it, the
+failure is something else. The exit code in the message tells you which
+half of the setup to check:
+
+| Exit code                          | Meaning                                    | Check                                                                                                                                                   |
+| ---------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `6`, `7`, `28`                     | Can't resolve/reach the host, or timed out | `http_proxy`/`https_proxy`/`no_proxy` — is the proxy set, correct, and actually reachable from here?                                                    |
+| `35`, `51`, `60`, `77`, `82`, `83` | Certificate/CA problem                     | `VM_CA_CERT` (VM path) / `CURL_CA_BUNDLE` or your system's trust store (host path) / `certs/` (container path) — does it trust the proxy's certificate? |
+
+`vm-bootstrap-perlbrew.sh`'s hint can also appear for a non-curl exit code —
+perlbrew wraps its own internal fetches (patchperl, Perl source) in its own
+exit status rather than curl's, so the script also recognizes the failure by
+the command that ran, not just the code.

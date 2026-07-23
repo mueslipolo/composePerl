@@ -16,7 +16,7 @@
 # To deliberately re-pin an artifact (e.g. upstream legitimately re-released):
 #   delete its line from artifacts.sha256 and re-run.
 
-set -euo pipefail
+set -Eeuo pipefail
 
 # --- Proxy ---------------------------------------------------------------------
 # curl (used for every download below) reads lowercase http_proxy/https_proxy/
@@ -34,6 +34,26 @@ if [ -n "${https_proxy}" ] || [ -n "${http_proxy}" ]; then
 else
     echo "==> No proxy configured (http_proxy/https_proxy unset)"
 fi
+
+# Prints a targeted hint if the failure that just aborted the script (under
+# set -e) looks network/TLS-related, so a raw curl error doesn't require
+# re-deriving "is this a proxy problem?" by hand. Silent for anything else
+# (a hash mismatch, a missing file) — it can't misdirect if it only speaks
+# up for the failures it actually recognizes.
+_diagnose_network_failure() {
+    local exit_code="$1" failing_cmd="$2"
+    case "${exit_code}" in
+        6|7|28|35|51|52|55|56|58|60|77|82|83) ;;  # curl network/TLS exit codes
+        *) return 0 ;;
+    esac
+    echo "" >&2
+    echo "==> Network/TLS error (exit ${exit_code}) while running: ${failing_cmd}" >&2
+    echo "    If you're behind a corporate proxy, check:" >&2
+    echo "      - http_proxy / https_proxy / no_proxy are set and correct" >&2
+    echo "      - your CA trust store (CURL_CA_BUNDLE or your system's) trusts the proxy" >&2
+    echo "    See docs/proxy.md for details." >&2
+}
+trap '_diagnose_network_failure $? "$BASH_COMMAND"' ERR
 
 # --- Locations ---------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -23,7 +23,8 @@ FROM ${BASE_IMAGE_NAME}:dev-tools
 
 # Carton (via cpanm fatpack). Lives only in this image, never in dev/runtime.
 COPY artifacts/cpanm /opt/perl/bin/cpanm
-RUN /opt/perl/bin/cpanm --notest Carton
+RUN /opt/perl/bin/cpanm --notest Carton \
+    || { echo "==> cpanm failed - check http_proxy/https_proxy build-args and certs/ CA trust; see docs/proxy.md" >&2; exit 1; }
 
 WORKDIR /build
 
@@ -35,6 +36,7 @@ COPY cpanfile cpanfile.snapshot ./
 # file so carton resolves fresh from cpanfile. A real non-empty snapshot is
 # always kept and used verbatim.
 RUN [ -s cpanfile.snapshot ] || rm -f cpanfile.snapshot; \
-    /opt/perl/bin/carton install \
-    && /opt/perl/bin/carton bundle \
+    { /opt/perl/bin/carton install \
+        && /opt/perl/bin/carton bundle \
+        || { echo "==> carton install/bundle failed - check http_proxy/https_proxy build-args and certs/ CA trust; see docs/proxy.md" >&2; exit 1; }; } \
     && tar czf cpan-bundle.tar.gz ./vendor cpanfile cpanfile.snapshot

@@ -41,14 +41,15 @@ ENV http_proxy=${http_proxy} \
 COPY certs/ /etc/pki/ca-trust/source/anchors/
 RUN rm -f /etc/pki/ca-trust/source/anchors/.gitkeep && update-ca-trust
 
-# hadolint ignore=DL3041
+# hadolint ignore=DL3041,SC2015
 RUN microdnf install -y \
       gcc \
       make \
       tar \
       gzip \
       wget \
-  && microdnf clean all
+  && microdnf clean all \
+  || { echo "==> microdnf failed - check http_proxy/https_proxy build-args and certs/ CA trust; see docs/proxy.md" >&2; exit 1; }
 
 WORKDIR /tmp/perl-build
 
@@ -98,17 +99,19 @@ RUN rm -f /etc/pki/ca-trust/source/anchors/.gitkeep && update-ca-trust
 # minimal `base` stage, which deliberately has no findutils/xargs (that's
 # added in dev-tools only) — no pipe also means no pipefail/SHELL concern.
 COPY lib-packages.conf /tmp/lib-packages.conf
-# hadolint ignore=DL3041,SC2046
+# hadolint ignore=DL3041,SC2046,SC2015
 RUN microdnf -y install $(awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} $1!=""{print $1}' /tmp/lib-packages.conf) \
   && rm -f /tmp/lib-packages.conf \
-  && microdnf clean all
+  && microdnf clean all \
+  || { echo "==> microdnf failed - check http_proxy/https_proxy build-args and certs/ CA trust; see docs/proxy.md" >&2; exit 1; }
 
 # Oracle Instant Client (runtime libraries only, no SDK).
 # unzip is installed transiently and removed in the same layer, so it never
 # ships in the final image.
 COPY artifacts/instantclient-basiclite*.zip /tmp/
 # hadolint ignore=DL3041
-RUN microdnf install -y unzip \
+RUN { microdnf install -y unzip \
+        || { echo "==> microdnf failed - check http_proxy/https_proxy build-args and certs/ CA trust; see docs/proxy.md" >&2; exit 1; }; } \
     && unzip -o -q /tmp/instantclient-basiclite*.zip -d /opt/oracle \
     && mv /opt/oracle/instantclient_* /opt/oracle/instantclient \
     && rm -f /opt/oracle/instantclient/*.jar /opt/oracle/instantclient/libocci.so \
@@ -142,7 +145,7 @@ ENV PATH="/opt/perl/bin:${PATH}" \
 FROM base AS dev-tools
 
 # Generic build toolchain — not per-library, so not part of lib-packages.conf.
-# hadolint ignore=DL3041
+# hadolint ignore=DL3041,SC2015
 RUN microdnf -y install \
       gcc \
       make \
@@ -155,17 +158,19 @@ RUN microdnf -y install \
       gzip \
       unzip \
       patch \
-  && microdnf clean all
+  && microdnf clean all \
+  || { echo "==> microdnf failed - check http_proxy/https_proxy build-args and certs/ CA trust; see docs/proxy.md" >&2; exit 1; }
 
 # -devel headers matching base's runtime libs, generated from the same
 # lib-packages.conf (column 2) base's RUN used — see the comment there.
 # Same word-split form as base, for consistency (findutils/xargs happen to
 # be available here, but there's no reason for the two stages to differ).
 COPY lib-packages.conf /tmp/lib-packages.conf
-# hadolint ignore=DL3041,SC2046
+# hadolint ignore=DL3041,SC2046,SC2015
 RUN microdnf -y install $(awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} $2!=""{print $2}' /tmp/lib-packages.conf) \
   && rm -f /tmp/lib-packages.conf \
-  && microdnf clean all
+  && microdnf clean all \
+  || { echo "==> microdnf failed - check http_proxy/https_proxy build-args and certs/ CA trust; see docs/proxy.md" >&2; exit 1; }
 
 # Oracle SDK headers (build-time only, required by DBD::Oracle).
 COPY artifacts/instantclient-sdk*.zip /tmp/
@@ -226,7 +231,8 @@ WORKDIR /app
 COPY app/ ./
 
 # hadolint ignore=DL3041
-RUN microdnf install -y shadow-utils \
+RUN { microdnf install -y shadow-utils \
+        || { echo "==> microdnf failed - check http_proxy/https_proxy build-args and certs/ CA trust; see docs/proxy.md" >&2; exit 1; }; } \
     && useradd -m -u 1001 appuser \
     && chown -R appuser:appuser /app \
     && microdnf remove -y shadow-utils \
