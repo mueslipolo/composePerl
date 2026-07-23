@@ -92,7 +92,7 @@ make fetch-artifacts          # Download perl, cpanm, cpm, and Oracle Instant Cl
 make base                     # Build the shared base stage (myapp:base)
 make dev-tools                # Build the dev-tools stage (myapp:dev-tools; shared by dev and Containerfile.deps)
 make bundle                   # Generate CPAN bundle from cpanfile.snapshot
-make update MODULE=name       # Update one module in cpanfile.snapshot
+make update MODULE=name       # Update one (or, quoted, several) module(s) in cpanfile.snapshot
 make update-all               # Update all modules in cpanfile.snapshot
 make dev                      # Build development image (myapp:dev)
 make runtime                  # Build runtime image (myapp:runtime)
@@ -162,17 +162,18 @@ make status    # Verify everything is aligned
 
 The new bundle will have a different hash (the snapshot changed), ensuring full traceability.
 
-### Update a single module to latest
+### Update one or more specific modules to latest
 
-Bumps one module's entry in `cpanfile.snapshot` to the latest version satisfying `cpanfile`, leaving all other locked versions unchanged:
+Bumps the given modules' entries in `cpanfile.snapshot` to the latest version satisfying `cpanfile`, leaving every other locked version unchanged:
 
 ```bash
-make update MODULE=DBI    # (or: ./scripts/deps.sh update --module DBI)
-make bundle               # Rebuild bundle from updated snapshot
-make all                  # Rebuild images
+make update MODULE=DBI                      # (or: ./scripts/deps.sh update --module DBI)
+make update MODULE="DBI Try::Tiny JSON::XS" # several at once — quote so make passes them as one word
+make bundle                                 # Rebuild bundle from updated snapshot
+make all                                    # Rebuild images
 ```
 
-`carton update MODULE` ignores the current snapshot entry for that module, goes to CPAN, and fetches the latest version satisfying `cpanfile`'s constraints (no constraint → absolute latest). Only that module's snapshot entry is rewritten; everything else stays locked.
+`carton update MODULE...` ignores the current snapshot entries for exactly those modules, goes to CPAN, and fetches the latest version satisfying `cpanfile`'s constraints for each (no constraint → absolute latest). Only the named modules' snapshot entries are rewritten; everything else stays locked — this holds whether you name one module or several.
 
 ### Update all modules to latest
 
@@ -195,7 +196,7 @@ requires 'DBI', '>= 1.640, < 2.0'; # version range
 Then update the snapshot and rebuild:
 
 ```bash
-./scripts/deps.sh update --module DBI
+./scripts/deps.sh update --module DBI          # or: --module DBI Try::Tiny for several
 make bundle && make all
 ```
 

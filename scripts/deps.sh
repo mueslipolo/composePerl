@@ -4,9 +4,9 @@ set -euo pipefail
 # deps.sh - CPAN dependency manager
 #
 # Purpose: Manages Perl dependencies using Carton
-# Usage:   deps.sh bundle               - Package current cpanfile.snapshot into an offline bundle
-#          deps.sh update --all         - Update all deps to latest versions in cpanfile.snapshot
-#          deps.sh update --module MOD  - Update one module to latest in cpanfile.snapshot
+# Usage:   deps.sh bundle                        - Package current cpanfile.snapshot into an offline bundle
+#          deps.sh update --all                  - Update all deps to latest versions in cpanfile.snapshot
+#          deps.sh update --module MOD [MOD...]  - Update one or more specific modules, leaving the rest pinned
 #          Or via: make bundle
 # Output:  Creates bundles/bundle-{HASH}.tar.gz with CPAN mirror
 # Note:    To pin to a specific version, edit cpanfile first (e.g., requires 'DBI', '== 1.643';)
@@ -191,9 +191,15 @@ cmd_bundle() {
 
 cmd_update() {
     local UPDATE_ALL=false
-    local MODULE=""
+    local -a MODULES=()
 
-    # Parse update command arguments
+    # Parse update command arguments. --module takes one or more module
+    # names (everything up to the next --flag or end of args) — `carton
+    # update Mod1 Mod2` natively updates exactly that set and leaves
+    # everything else pinned, the same scoped-update guarantee as a single
+    # module (verified against Carton::CLI::cmd_update's own source: with no
+    # args it updates every required module, with args it updates only
+    # those), so this is just exposing what Carton already does.
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --all)
@@ -201,8 +207,11 @@ cmd_update() {
                 shift
                 ;;
             --module)
-                MODULE="$2"
-                shift 2
+                shift
+                while [[ $# -gt 0 && "$1" != --* ]]; do
+                    MODULES+=("$1")
+                    shift
+                done
                 ;;
             *)
                 echo "ERROR: Unknown option: $1"
@@ -213,13 +222,13 @@ cmd_update() {
     done
 
     # Validate arguments
-    if [[ "${UPDATE_ALL}" == "false" && -z "${MODULE}" ]]; then
-        echo "ERROR: Must specify either --all or --module MODULE"
+    if [[ "${UPDATE_ALL}" == "false" && "${#MODULES[@]}" -eq 0 ]]; then
+        echo "ERROR: Must specify either --all or --module MODULE [MODULE...]"
         show_usage
         exit 1
     fi
 
-    if [[ "${UPDATE_ALL}" == "true" && -n "${MODULE}" ]]; then
+    if [[ "${UPDATE_ALL}" == "true" && "${#MODULES[@]}" -gt 0 ]]; then
         echo "ERROR: Cannot use --all with --module"
         show_usage
         exit 1
@@ -242,8 +251,8 @@ cmd_update() {
         echo "==> Updating all dependencies to latest versions..."
         CARTON_CMD="carton update"
     else
-        echo "==> Updating ${MODULE} to latest version..."
-        CARTON_CMD="carton update ${MODULE}"
+        echo "==> Updating ${MODULES[*]} to latest version..."
+        CARTON_CMD="carton update ${MODULES[*]}"
     fi
 
     # Create and start container
@@ -291,14 +300,16 @@ show_usage() {
 Usage: $0 <command> [options]
 
 Commands:
-  bundle                Generate CPAN bundle from cpanfile.snapshot
-  update --all          Update all dependencies to latest versions
-  update --module NAME  Update specific module to latest version
+  bundle                       Generate CPAN bundle from cpanfile.snapshot
+  update --all                 Update all dependencies to latest versions
+  update --module NAME [NAME...]  Update one or more specific modules to their
+                                latest version, leaving everything else pinned
 
 Examples:
   $0 bundle
   $0 update --all
   $0 update --module DBI
+  $0 update --module DBI Try::Tiny JSON::XS
 
 Notes:
   'update --module' uses carton update, which fetches the latest version

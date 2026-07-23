@@ -99,6 +99,12 @@ run_script() {
   [ "$status" -eq 0 ]
 }
 
+@test "cmd_update --module accepts multiple modules and updates only those" {
+  run_script update --module DBI Try::Tiny JSON::XS
+  [ "$status" -eq 0 ]
+  grep -q "carton update DBI Try::Tiny JSON::XS" "$BATS_TEST_TMPDIR/podman.log"
+}
+
 @test "cmd_update with --all and --module together fails" {
   run_script update --all --module DBI
   [ "$status" -ne 0 ]

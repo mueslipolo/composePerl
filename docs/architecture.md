@@ -138,7 +138,7 @@ Match this to the production host OS to avoid `undefined symbol` errors at runti
 
 1. Download the new Perl source tarball to `artifacts/` (e.g. `perl-5.42.2.tar.gz`)
 1. Edit `Containerfile` and change `ARG PERL_VERSION=5.28.1` to the new version
-1. **Re-resolve the snapshot against the new Perl**: `make update-all` (or `make update MODULE=Name` for a narrower bump) — this is the step it's easy to skip, and skipping it means the "new" bundle is still built from the old Perl's dependency resolution
+1. **Re-resolve the snapshot against the new Perl**: `make update-all` (or `make update MODULE=Name` / `MODULE="Name1 Name2"` for a narrower bump) — this is the step it's easy to skip, and skipping it means the "new" bundle is still built from the old Perl's dependency resolution
 1. Rebuild: `make bundle && make all`
 1. `make test-full` before trusting the result — a clean re-resolution doesn't guarantee every XS module still compiles cleanly under the new toolchain
 

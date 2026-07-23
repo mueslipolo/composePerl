@@ -77,9 +77,9 @@ dev-tools: check-artifacts ## Build the dev-tools stage ($(IMAGE_NAME):dev-tools
 bundle: check-artifacts ## Generate CPAN bundle from cpanfile.snapshot
 	@./scripts/deps.sh bundle
 
-update: check-artifacts ## Update one module in cpanfile.snapshot (usage: make update MODULE=Name)
+update: check-artifacts ## Update one or more modules in cpanfile.snapshot (usage: make update MODULE=Name, or MODULE="Name1 Name2" for several)
 	@if [ -z "$(MODULE)" ]; then \
-	    echo "ERROR: MODULE=name required (e.g. make update MODULE=DBI)"; exit 2; \
+	    echo "ERROR: MODULE=name required (e.g. make update MODULE=DBI, or MODULE=\"DBI Try::Tiny\" for several)"; exit 2; \
 	fi
 	@./scripts/deps.sh update --module $(MODULE)
 
