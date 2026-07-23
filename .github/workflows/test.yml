@@ -404,7 +404,7 @@ jobs:
           podman cp scripts/vm-check-compat.sh vm-deploy-test:/vm-deploy/
           podman cp scripts/vm-install-bundle.sh vm-deploy-test:/vm-deploy/
           podman cp "artifacts/$(readlink artifacts/cpm)" vm-deploy-test:/vm-deploy/cpm
-          podman cp "artifacts/perl-${PERL_VERSION}.tar.gz" vm-deploy-test:/vm-deploy/perl-src.tar.gz
+          podman cp "artifacts/perl-${PERL_VERSION}.tar.gz" vm-deploy-test:/vm-deploy/perl-${PERL_VERSION}.tar.gz
           podman cp "${BUNDLE_DIR}/$(readlink "${BUNDLE_DIR}/bundle-latest.tar.gz")" vm-deploy-test:/vm-deploy/bundle.tar.gz
           podman cp "${BUNDLE_DIR}/$(readlink "${BUNDLE_DIR}/bundle-latest.build-info")" vm-deploy-test:/vm-deploy/bundle.build-info
           podman exec vm-deploy-test chmod +x /vm-deploy/vm-bootstrap-perlbrew.sh /vm-deploy/vm-check-compat.sh /vm-deploy/vm-install-bundle.sh /vm-deploy/cpm
@@ -414,7 +414,7 @@ jobs:
           podman exec -w /vm-deploy vm-deploy-test bash -c '
             export HOME=/root
             PERL_VERSION="$(sed -n "s/^PERL_VERSION=//p" bundle.build-info)"
-            ./vm-bootstrap-perlbrew.sh "$PERL_VERSION" ./perl-src.tar.gz
+            ./vm-bootstrap-perlbrew.sh "$PERL_VERSION" ./perl-${PERL_VERSION}.tar.gz
           '
 
       - name: Version-compatibility gate
@@ -468,14 +468,14 @@ jobs:
           podman exec vm-proxy-test mkdir -p /vm-deploy
           podman cp scripts/vm-bootstrap-perlbrew.sh vm-proxy-test:/vm-deploy/
           PERL_VERSION="$(sed -n 's/^ARG PERL_VERSION=//p' Containerfile)"
-          podman cp "artifacts/perl-${PERL_VERSION}.tar.gz" vm-proxy-test:/vm-deploy/perl-src.tar.gz
+          podman cp "artifacts/perl-${PERL_VERSION}.tar.gz" vm-proxy-test:/vm-deploy/perl-${PERL_VERSION}.tar.gz
           podman exec vm-proxy-test chmod +x /vm-deploy/vm-bootstrap-perlbrew.sh
 
           if podman exec -w /vm-deploy vm-proxy-test bash -c "
               export HOME=/root
               export https_proxy=http://host.containers.internal:8898
               export http_proxy=http://host.containers.internal:8898
-              ./vm-bootstrap-perlbrew.sh ${PERL_VERSION} ./perl-src.tar.gz
+              ./vm-bootstrap-perlbrew.sh ${PERL_VERSION} ./perl-${PERL_VERSION}.tar.gz
           "; then
             echo "FAIL: vm-bootstrap-perlbrew.sh succeeded through the MITM proxy without VM_CA_CERT"
             exit 1
@@ -492,7 +492,7 @@ jobs:
             export https_proxy=http://host.containers.internal:8898
             export http_proxy=http://host.containers.internal:8898
             export VM_CA_CERT=/vm-deploy/corp-ca.pem
-            ./vm-bootstrap-perlbrew.sh ${PERL_VERSION} ./perl-src.tar.gz
+            ./vm-bootstrap-perlbrew.sh ${PERL_VERSION} ./perl-${PERL_VERSION}.tar.gz
           "
           echo "OK: succeeded with VM_CA_CERT trust; perlbrew installed through the proxy"
 
