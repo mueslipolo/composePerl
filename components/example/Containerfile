@@ -20,19 +20,14 @@ ARG COMMON_RUNTIME_TAG=common-runtime
 FROM ${COMMON_IMAGE}:${COMMON_DEV_TAG} AS build
 
 WORKDIR /opt/component-install
-# The bundle (from `make bundle-component`) already contains cpanfile,
-# cpanfile.snapshot, and vendor/cache — no separate COPY of those is needed.
+# The bundle (from `make bundle-component`) is delta-only and already contains
+# cpanfile + vendor/cache. install-component-layered (baked into common-dev)
+# seeds /opt/cpan-component from /opt/cpan-common, installs the delta, and
+# prunes the shared files back out — leaving a delta-only component layer.
 COPY bundle-latest.tar.gz ./component-bundle.tar.gz
-# Install the full closure, then delete every file the common layer already
-# provides — leaving /opt/cpan-component holding only this component's delta.
-# (scripts/install-component-layered.sh is the standalone form of this.)
 # hadolint ignore=DL3003
 RUN tar xzf component-bundle.tar.gz \
-    && rm -f cpanfile.snapshot \
-    && cpm install -L /opt/cpan-component --resolver "02packages,file://$PWD/vendor/cache" --cpanfile cpanfile \
-    && ( cd /opt/cpan-component \
-         && find . -type f -exec sh -c '! [ -e "/opt/cpan-common/$1" ] || rm -f "$1"' _ {} \; \
-         && find . -type d -empty -delete ) \
+    && install-component-layered . /opt/cpan-common /opt/cpan-component \
     && rm -rf /opt/component-install ~/.perl-cpm
 
 # ---- runtime: common-runtime + the pruned delta + the app ----

@@ -188,57 +188,47 @@ seed — which is precisely why enforcement lives in the gate, not in Carton.
 installs the higher version and exits 0** — it does not error — so the gate is
 the only enforcement.)
 
-### Layered install (full closure, then prune)
+### Layered install (seed, then delta)
 
 The obvious install — "the component only installs its delta, because
-`common` is already on `PERL5LIB`" — **does not work with cpm**. `cpm -L` is a
-*contained* local::lib: it deliberately ignores the ambient `PERL5LIB`, so it
-will re-resolve and reinstall a dependency even when that exact module+version
-is already loadable from the common layer (verified: `use`-able common modules
-were still reinstalled). There is no cpm flag to make `-L` honour an external
-lib.
+`common` is already on `PERL5LIB`" — **does not work with cpm**, and the fix
+comes from *how* cpm decides what's already satisfied. Both facts below were
+verified against real CPAN (cpm v1.1.4):
 
-So the component install is **install-full-then-prune**
-(`scripts/install-component-layered.sh`):
+- **cpm ignores the ambient `PERL5LIB`.** `cpm -L` is a *contained* local::lib;
+  a module loadable via `PERL5LIB` is still re-resolved/reinstalled, and a
+  delta-only mirror makes cpm *fail* trying to fetch the shared dependency.
+- **cpm honours the `-L` target lib itself.** A module already present *in the
+  target lib* is treated as satisfied and skipped.
 
-1. `cpm install -L /opt/cpan-<comp>` the component's **full** closure from its
-   vendor mirror (this includes the shared dists);
-2. delete from `/opt/cpan-<comp>` every file that already exists at the same
-   path under `/opt/cpan-common`, leaving only the delta;
-3. drop the emptied directories.
+The second fact is the lever. `scripts/install-component-layered.sh` does
+**seed-then-delta**:
 
-The prune is **safe precisely because of the gate**: a distribution shared
-with `common` is guaranteed to be pinned to the *same version*, so its files
-are byte-identical to common's — deleting the component's copy loses nothing,
-and the runtime resolves it from the shared common layer via
+1. **seed** `/opt/cpan-<comp>` with a copy of `/opt/cpan-common`, so cpm sees
+   the shared modules as installed;
+2. `cpm install -L /opt/cpan-<comp>` the component from its **delta-only**
+   vendor mirror — cpm installs only what the seed doesn't already satisfy (no
+   re-resolving, no recompiling common's XS);
+3. **prune** every file `/opt/cpan-common` provides (the seed + anything shared),
+   leaving `/opt/cpan-<comp>` with just the delta;
+4. drop the emptied directories.
+
+The prune is **safe precisely because of the gate**: a distribution shared with
+`common` is pinned to the *same version*, so the seeded files are byte-identical
+to common's — deleting them loses nothing, and the runtime resolves them from
+the shared layer via
 `PERL5LIB=/opt/cpan-<comp>/... : /opt/cpan-common/... : /opt/perl/...`. This
 keeps the shared `common` layer physically single (COPYed once, deduped by the
-storage driver) while each component layer carries only its own delta.
+storage driver) while each component layer — and each component **bundle** —
+carries only its own delta.
 
-#### cpm satisfaction behaviour (measured, not assumed)
-
-Two facts about cpm decide the shape above; both were verified against real
-CPAN (cpm v1.1.4):
-
-- **cpm ignores the ambient `PERL5LIB`.** A module loadable via `PERL5LIB` is
-  still re-resolved/reinstalled by `cpm -L`; a delta-only mirror makes cpm
-  *fail* trying to fetch the (PERL5LIB-provided) shared dependency.
-- **cpm honours the `-L` target lib.** A module already present *in the target
-  lib itself* is treated as satisfied and skipped.
-
-That second fact enables an alternative that ships **delta-only bundles**
-instead of full-closure ones:
-
-| Strategy | Bundle contents | Build step | Trade-off |
-|---|---|---|---|
-| **full-then-prune** (shipped: `install-component-layered.sh`) | full closure (incl. shared dists) | install full → prune common's files | bigger bundles; no seed copy |
-| **seed-then-delta** | delta only | copy common into the target → `cpm install` delta → prune common back out | small bundles; pays a copy of the common lib at build |
-
-Both yield an identical delta-only component layer. `seed-then-delta` is the
-better fit once `common` is large (small per-component bundles), at the cost of
-seeding the target from the common layer before installing. The wiring can
-choose per environment; the gate's same-version guarantee is what makes the
-final prune safe in either case.
+Why seed-then-delta over the earlier "install the full closure, then prune"
+idea: it ships **small, delta-only bundles** (components never re-vendor common)
+*and* it never recompiles common's XS per component (the seed satisfies it). The
+only cost is copying the common lib into the target before install, which is far
+cheaper than recompiling. `scripts/bundle-component.sh` produces the delta-only
+bundle; `install-component-layered.sh` consumes it (and is baked into the
+`common-dev` image so component builds can call it directly).
 
 ## The split is a dial, not a switch
 

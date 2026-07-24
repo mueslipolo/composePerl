@@ -281,6 +281,9 @@ FROM dev-tools AS common-dev
 
 WORKDIR /opt/common-install
 COPY artifacts/cpm /opt/perl/bin/cpm
+# Bake the seed-then-delta installer so component images (FROM common-dev) can
+# install their delta on top of /opt/cpan-common without vendoring the script.
+COPY scripts/install-component-layered.sh /usr/local/bin/install-component-layered
 COPY common/cpanfile common/cpanfile.snapshot ./
 COPY bundles/common/bundle-latest.tar.gz ./common-bundle.tar.gz
 # Same offline, snapshot-removed install the single-component dev stage uses,

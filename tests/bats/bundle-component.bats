@@ -43,6 +43,17 @@ setup() {
   ! grep -qE '^(Try-Tiny|Capture-Tiny) ' "$d/delta.txt"
 }
 
+@test "alpha: the vendored mirror is delta-only (no common tarballs shipped)" {
+  "$SCRIPT" "$COMMON_DIR" "$FIXTURES/alpha" "$BDIR" >/dev/null
+  d="${BATS_TEST_TMPDIR}/vextract"; mkdir -p "$d"
+  tar xzf "$BDIR/alpha/bundle-latest.tar.gz" -C "$d"
+  run bash -c "find '$d/vendor/cache' -name '*.tar.gz' | sed 's#.*/##' | sort"
+  [[ "$output" == *"Test-Fatal-"* ]]
+  # common's distributions must NOT be shipped in the component bundle
+  [[ "$output" != *"Try-Tiny-"* ]]
+  [[ "$output" != *"Capture-Tiny-"* ]]
+}
+
 @test "beta: empty delta still produces a valid bundle" {
   run "$SCRIPT" "$COMMON_DIR" "$FIXTURES/beta" "$BDIR"
   [ "$status" -eq 0 ]
