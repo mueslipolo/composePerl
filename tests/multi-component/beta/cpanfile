@@ -1,0 +1,1 @@
+requires 'Capture::Tiny'; # shared with common only -> beta's delta is empty

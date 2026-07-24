@@ -1,0 +1,2 @@
+requires 'Try::Tiny';     # shared with common -> reused at common's pin, not re-vendored
+requires 'Test::Fatal';   # new -> alpha's delta; its Try::Tiny dep is satisfied by common
