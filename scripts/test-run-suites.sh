@@ -42,7 +42,9 @@ mkdir -p "${REPORTS_DIR}"
 # Generate timestamp and report paths
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 if [[ -n "${MODULE_NAME}" ]]; then
-    # Sanitize module name for filename (replace :: with -)
+    # Sanitize module name for filename: tr maps each ':' to '-', so a '::'
+    # separator becomes '--' (e.g. Foo::Bar -> Foo--Bar). Purely a filename,
+    # so the doubled dash is harmless.
     MODULE_SAFE=$(echo "${MODULE_NAME}" | tr ':' '-')
     REPORT_SUMMARY="${REPORTS_DIR}/${MODULE_SAFE}-${TIMESTAMP}-summary.txt"
     REPORT_DETAIL_DIR="${REPORTS_DIR}/${MODULE_SAFE}-${TIMESTAMP}-details"

@@ -99,7 +99,10 @@ fi
 # Display image sizes
 echo ""
 echo "==> Image sizes:"
-podman images | grep -E "REPOSITORY|${IMAGE_NAME}" | grep -E "REPOSITORY|dev|runtime"
+# Let podman filter by exact image reference (header included) rather than
+# interpolating IMAGE_NAME into a grep ERE, where regex metacharacters in a
+# custom IMAGE_NAME — or an unrelated repo containing the name — would match.
+podman images --filter "reference=${IMAGE_NAME}:dev" --filter "reference=${IMAGE_NAME}:runtime"
 
 echo ""
 echo "==> Build complete"

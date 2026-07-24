@@ -43,16 +43,26 @@ run_script() {
 @test "emits valid JSON with a CycloneDX header" {
   run_script
   [ "$status" -eq 0 ]
-  echo "$output" | python3 -c "import json,sys; json.load(sys.stdin)"
-  [[ "$output" == *'"bomFormat" : "CycloneDX"'* ]]
-  [[ "$output" == *'"specVersion" : "1.6"'* ]]
+  # Parse and assert on values, not on the encoder's pretty-print spacing.
+  echo "$output" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["bomFormat"] == "CycloneDX", d["bomFormat"]
+assert d["specVersion"] == "1.6", d["specVersion"]
+'
 }
 
 @test "emits one component per distribution with a correct pkg:cpan purl" {
   run_script
   [ "$status" -eq 0 ]
-  [[ "$output" == *'"purl" : "pkg:cpan/Try-Tiny@0.30?author=ETHER"'* ]]
-  [[ "$output" == *'"purl" : "pkg:cpan/DBD-Oracle@1.90?author=ZARQUON"'* ]]
+  echo "$output" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+purls = {c["purl"] for c in d["components"]}
+assert len(d["components"]) == 2, len(d["components"])
+assert "pkg:cpan/Try-Tiny@0.30?author=ETHER" in purls, purls
+assert "pkg:cpan/DBD-Oracle@1.90?author=ZARQUON" in purls, purls
+'
 }
 
 @test "uses the distribution name, not the module name (no :: in purl)" {
@@ -60,7 +70,12 @@ run_script() {
   [ "$status" -eq 0 ]
   # Try::Tiny (module) must not leak into the purl as a bare module name —
   # only the distribution name Try-Tiny is a valid `cpan` purl name.
-  [[ "$output" != *'pkg:cpan/Try::Tiny'* ]]
+  echo "$output" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+bad = [c["purl"] for c in d["components"] if "::" in c["purl"]]
+assert not bad, bad
+'
 }
 
 @test "fails with a usage message when no snapshot path is given" {

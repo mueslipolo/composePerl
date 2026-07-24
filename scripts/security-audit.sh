@@ -141,10 +141,13 @@ REPORT="$(
     os_report
 )"
 
-echo "${REPORT}"
+# printf, not echo: the report content is arbitrary (module names, versions)
+# and echo would mangle a line that happens to start with -n/-e or contain
+# backslashes under some shells.
+printf '%s\n' "${REPORT}"
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-    echo "${REPORT}" >> "${GITHUB_STEP_SUMMARY}"
+    printf '%s\n' "${REPORT}" >> "${GITHUB_STEP_SUMMARY}"
 fi
 
 if [[ "${CPAN_STATUS}" -ne 0 || "${OS_STATUS}" -ne 0 ]]; then
