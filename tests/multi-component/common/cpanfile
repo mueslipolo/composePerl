@@ -1,0 +1,4 @@
+# The shared BOM. Try::Tiny is pinned to an old version on purpose so the
+# conflict fixture (gamma) can demonstrably demand a newer one.
+requires 'Try::Tiny', '== 0.30';
+requires 'Capture::Tiny';

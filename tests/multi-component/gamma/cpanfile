@@ -1,0 +1,1 @@
+requires 'Try::Tiny', '>= 0.31'; # common pins 0.30 -> must fail the gate

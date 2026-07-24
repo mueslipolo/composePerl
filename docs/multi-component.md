@@ -125,6 +125,64 @@ Per component (`make bundle COMPONENT=<app>`), planned flow:
    already on `PERL5LIB`; `cpm` installs just the delta into `/opt/cpan-<comp>`
    and sees the shared deps as already satisfied.
 
+### Worked example
+
+`common` pins three distributions; component `x` declares its own direct deps
+(one of which, `JSON::XS`, common already provides):
+
+```
+common/cpanfile              common/cpanfile.snapshot (the BOM)
+  requires 'Try::Tiny';        Try-Tiny-0.30
+  requires 'JSON::XS';         JSON-XS-3.04
+  requires 'Moo';              Moo-2.005005
+
+components/x/cpanfile
+  requires 'JSON::XS';   # already in common
+  requires 'DBI';        # new
+  requires 'DBD::SQLite';# new
+```
+
+Step 1 — the scratch workdir gets the **union** cpanfile and a **copy of
+common's snapshot** as the seed:
+
+```
+workdir/cpanfile          = common/cpanfile + components/x/cpanfile
+workdir/cpanfile.snapshot = cp common/cpanfile.snapshot
+```
+
+Step 2 — `carton install` keeps common's three pins and adds only the new
+distributions, producing:
+
+```
+workdir/cpanfile.snapshot:  Try-Tiny-0.30  JSON-XS-3.04  Moo-2.005005  DBI-1.643  DBD-SQLite-1.74
+```
+
+Step 3–4 — the gate diffs that against `common/cpanfile.snapshot`:
+
+```
+$ scripts/bom-gate.pl common/cpanfile.snapshot workdir/cpanfile.snapshot
+DBD-SQLite 1.74
+DBI 1.643
+```
+
+Exit 0, and those two lines are exactly the **delta** `x`'s bundle vendors —
+`Try-Tiny`, `JSON-XS`, `Moo` come from the shared `common` layer.
+
+**The conflict case:** had `components/x/cpanfile` said
+`requires 'JSON::XS', '>= 4.0'`, Carton couldn't satisfy that from the seeded
+`JSON-XS-3.04` pin, so it would re-resolve JSON-XS to 4.x — the resolved
+snapshot then diverges from common on JSON-XS, and the gate exits 1:
+
+```
+BOM CONFLICT: component overrides distribution(s) that 'common' pins.
+  JSON-XS   common=3.04   component=4.03
+Fix: bump it in common/cpanfile (affects all), or remove it from common/.
+```
+
+Because the gate re-checks Carton's *output*, it's correct regardless of
+whether a given Carton version re-resolves or errors on that unsatisfiable
+seed — which is precisely why enforcement lives in the gate, not in Carton.
+
 ## The split is a dial, not a switch
 
 The migration does not require splitting anything up front:
