@@ -261,6 +261,96 @@ jobs:
           fi
           echo "OK: bundle-hash label matches snapshot ($image_hash)"
 
+  multi-component:
+    # End-to-end build of the multi-component platform (docs/multi-component.md):
+    # the shared common-dev / common-runtime images, then the example component
+    # built on top — resolve→gate→bundle→layered-install→run. Build-validates
+    # the common platform Containerfile stages and components/example/Containerfile
+    # that the unit/integration layers can only check in pieces.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Install podman
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y podman
+
+      - name: Install Carton + cpm (host, for `make bundle-component`)
+        run: |
+          # Pinned like the other jobs — the component bundle is resolved on the
+          # host (scripts/bundle-component.sh); the common bundle uses the
+          # in-container carton-runner via `make bundle-common`.
+          curl -fsSL --proto '=https' --proto-redir '=https' -o /tmp/cpanm \
+            https://raw.githubusercontent.com/miyagawa/cpanminus/1.7048/cpanm
+          echo "4c5dcaac65e0c3e6e4272fd0f5c0a9c9ebdcbb29cdf329b18478b52f6883071c  /tmp/cpanm" \
+            | sha256sum -c -
+          perl /tmp/cpanm --notest -n -l ~/perl5 Carton App::cpm
+          echo "$HOME/perl5/bin" >> "$GITHUB_PATH"
+          echo "PERL5LIB=$HOME/perl5/lib/perl5" >> "$GITHUB_ENV"
+
+      - name: Cache artifacts/ and artifacts.sha256
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            artifacts
+            artifacts.sha256
+          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh', 'Containerfile') }}
+
+      - name: Fetch artifacts (skipped when cache hit)
+        run: scripts/fetch-artifacts.sh
+
+      - name: Build the common BOM bundle (container path, via carton-runner)
+        run: make bundle-common
+
+      - name: Build the common-dev and common-runtime platform images
+        run: |
+          make common-dev
+          make common-runtime
+
+      - name: Bundle the example component (resolve + BOM gate + vendor)
+        run: make bundle-component COMPONENT=components/example
+
+      - name: Build the example component image on top of the platform
+        run: |
+          # Stage the component's delta bundle next to its Containerfile
+          # (the bundles/ dir is gitignored; the symlink is resolved to a real file).
+          cp "$(readlink -f bundles/example/bundle-latest.tar.gz)" \
+             components/example/bundle-latest.tar.gz
+          podman build -t example-component:test \
+            -f components/example/Containerfile components/example
+
+      - name: Run the example component (layered common + delta must load)
+        run: |
+          out=$(podman run --rm example-component:test)
+          echo "$out"
+          echo "$out" | grep -q "Capture::Tiny (common) + Test::Fatal (delta) both loaded"
+
+      - name: Invariants — delta-only layer, no toolchain, non-root
+        run: |
+          set -e
+          # The component layer carries ONLY its delta: Test::Fatal present,
+          # common's Try::Tiny pruned out (it resolves from /opt/cpan-common).
+          podman run --rm example-component:test \
+            test -f /opt/cpan-component/lib/perl5/Test/Fatal.pm
+          if podman run --rm example-component:test \
+               test -e /opt/cpan-component/lib/perl5/Try/Tiny.pm; then
+            echo "FAIL: Try/Tiny.pm should have been pruned from the component layer"; exit 1
+          fi
+          echo "OK: component layer is delta-only"
+          # No build tools in the component runtime (it is FROM common-runtime / base).
+          if podman run --rm example-component:test sh -c 'command -v gcc || command -v make' 2>/dev/null; then
+            echo "FAIL: build tools leaked into the component runtime"; exit 1
+          fi
+          echo "OK: no build tools in the component runtime"
+          # Non-root.
+          uid=$(podman run --rm example-component:test id -u)
+          [ "$uid" = "1001" ] || { echo "FAIL: component runtime uid=$uid, expected 1001"; exit 1; }
+          echo "OK: component runtime runs as uid 1001"
+
   enterprise-proxy:
     # Validates enterprise-proxy + custom-CA support against a REAL
     # TLS-inspecting (MITM) proxy (tests/mitm-proxy/) — not a mock. A plain

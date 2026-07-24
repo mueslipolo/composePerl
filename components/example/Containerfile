@@ -20,7 +20,8 @@ ARG COMMON_RUNTIME_TAG=common-runtime
 FROM ${COMMON_IMAGE}:${COMMON_DEV_TAG} AS build
 
 WORKDIR /opt/component-install
-COPY cpanfile cpanfile.snapshot ./
+# The bundle (from `make bundle-component`) already contains cpanfile,
+# cpanfile.snapshot, and vendor/cache — no separate COPY of those is needed.
 COPY bundle-latest.tar.gz ./component-bundle.tar.gz
 # Install the full closure, then delete every file the common layer already
 # provides — leaving /opt/cpan-component holding only this component's delta.
@@ -28,7 +29,7 @@ COPY bundle-latest.tar.gz ./component-bundle.tar.gz
 # hadolint ignore=DL3003
 RUN tar xzf component-bundle.tar.gz \
     && rm -f cpanfile.snapshot \
-    && cpm install -L /opt/cpan-component --resolver "02packages,file://$PWD/vendor/cache" \
+    && cpm install -L /opt/cpan-component --resolver "02packages,file://$PWD/vendor/cache" --cpanfile cpanfile \
     && ( cd /opt/cpan-component \
          && find . -type f -exec sh -c '! [ -e "/opt/cpan-common/$1" ] || rm -f "$1"' _ {} \; \
          && find . -type d -empty -delete ) \
