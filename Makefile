@@ -96,8 +96,8 @@ all: bundle ## Generate bundle and build both dev and runtime images
 	@./scripts/build-image.sh all
 
 # ── Multi-component platform (design: docs/multi-component.md) ────────────────
-bundle-common: ## Resolve + bundle the shared common/ set into bundles/common/ (needs carton)
-	@./scripts/bundle-common.sh
+bundle-common: check-artifacts ## Build the shared common BOM bundle into bundles/common/ (container path, like `make bundle`)
+	@./scripts/deps.sh bundle-common
 
 common-dev: check-artifacts ## Build the common-dev platform image ($(IMAGE_NAME):common-dev; needs bundle-common first)
 	@podman build --target common-dev -t $(IMAGE_NAME):common-dev \
