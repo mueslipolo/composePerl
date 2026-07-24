@@ -261,7 +261,19 @@ ______________________________________________________________________
 ├── integration job       — Layer 2, ~3 min, host-side carton→cpm pipeline (4 modules)
 ├── container-build job   — Layer 4, ~10-16 min, full Containerfile build (11 modules, real Oracle)
 ├── vm-deployment job     — Layer 5, real perlbrew install + bundle deploy + proxy/CA verification
-└── enterprise-proxy job  — fetch-artifacts.sh + Containerfile build, real proxy/CA verification
+├── enterprise-proxy job  — fetch-artifacts.sh + Containerfile build, real proxy/CA verification
+├── sbom job              — CycloneDX SBOM: syft (OS packages) + generate-cpan-sbom.pl (CPAN modules)
+└── security-audit job    — weekly/on-demand only, not push/PR: cpan-audit (real cpanfile.snapshot) + trivy (curated test image)
 ```
+
+See [`docs/sbom.md`](../docs/sbom.md) for why two generators are needed (no
+general-purpose SBOM tool has a Perl/CPAN cataloger — confirmed against
+syft's own source and empirically against a real build) and how to
+regenerate one locally.
+
+See [`docs/security-audit.md`](../docs/security-audit.md) for what each
+half covers (cpan-audit for CPAN/Perl-core, trivy for OS packages), why
+they use different severity gates (fail-on-any vs. HIGH/CRITICAL-only),
+and how to run the combined report locally (`make security-audit`).
 
 Layer 3 (container tests against the full ~700-module production `cpanfile.snapshot`, not the curated Layer 4 subset) is not wired into public CI — it needs a corresponding production bundle. Run it locally (`make test-load-dev`, `make test-full`) against a real production build when validating one.

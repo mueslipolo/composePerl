@@ -103,6 +103,8 @@ make test-full                # Full: run CPAN test suites (parallel, all CPUs)
 make test-full MODULE=name    # Full: run CPAN test suite for single module
 make test-container-build     # End-to-end pipeline test against curated ~11-module cpanfile
 make clean                    # Remove images (bundles are preserved)
+make sbom                     # Generate a CycloneDX SBOM (needs make runtime first) — see docs/sbom.md
+make security-audit           # Check pinned CPAN/Perl-core modules + OS packages for known CVEs — see docs/security-audit.md
 ```
 
 All build targets accept an optional `UBI_IMAGE` variable to override the base OS:
@@ -244,7 +246,9 @@ Five-stage Containerfile build (`perl-src → base → dev-tools → dev`, with 
 │   ├── architecture.md        # Stage-by-stage breakdown, diagrams, RHEL/UBI targeting
 │   ├── troubleshooting.md     # Build/test failure modes
 │   ├── proxy.md                # Enterprise proxy support (http_proxy/https_proxy/no_proxy)
-│   └── vm-deployment.md       # Installing a bundle onto a perlbrew-managed legacy VM
+│   ├── vm-deployment.md       # Installing a bundle onto a perlbrew-managed legacy VM
+│   ├── sbom.md                 # SBOM generation (OS packages via syft + CPAN modules)
+│   └── security-audit.md      # CVE advisory audit: cpan-audit (CPAN/Perl-core) + trivy (OS packages)
 ├── scripts/                   # Build and management scripts
 │   ├── deps.sh                # CPAN dependency manager (bundle + snapshot update)
 │   ├── build-image.sh         # Container image builder
@@ -254,7 +258,10 @@ Five-stage Containerfile build (`perl-src → base → dev-tools → dev`, with 
 │   ├── test-run-suites.sh     # Full CPAN test suite runner
 │   ├── vm-bootstrap-perlbrew.sh # Installs perlbrew + pinned Perl onto a VM
 │   ├── vm-check-compat.sh     # Version-compatibility gate for a VM bundle install
-│   └── vm-install-bundle.sh   # Installs an offline CPAN bundle into a perlbrew lib
+│   ├── vm-install-bundle.sh   # Installs an offline CPAN bundle into a perlbrew lib
+│   ├── generate-cpan-sbom.pl  # CycloneDX SBOM (pkg:cpan/... purls) from cpanfile.snapshot
+│   ├── generate-sbom.sh       # Combines generate-cpan-sbom.pl + syft into one SBOM (make sbom)
+│   └── security-audit.sh      # cpan-audit + trivy combined report (make security-audit)
 ├── tests/
 │   ├── bats/                  # Shell-level unit tests (bats-core)
 │   │   ├── mocks/              # Mock podman/curl/perlbrew/etc. that log invocations
@@ -266,6 +273,9 @@ Five-stage Containerfile build (`perl-src → base → dev-tools → dev`, with 
 │   │   ├── vm-bootstrap-perlbrew.bats
 │   │   ├── vm-check-compat.bats
 │   │   ├── vm-install-bundle.bats
+│   │   ├── generate-cpan-sbom.bats
+│   │   ├── generate-sbom.bats
+│   │   ├── security-audit.bats
 │   │   └── project-structure.bats
 │   ├── integration/            # End-to-end Carton→cpm pipeline test
 │   ├── container-build/        # Curated ~11-module end-to-end Containerfile build test
@@ -275,7 +285,7 @@ Five-stage Containerfile build (`perl-src → base → dev-tools → dev`, with 
 │   ├── module-load-test.pl    # Container smoke test script
 │   ├── test-suite-runner.pl   # Full CPAN test suite runner
 │   └── README.md              # Test system documentation
-├── .github/workflows/test.yml # CI: lint + bats + integration + container-build + vm-deployment + enterprise-proxy jobs
+├── .github/workflows/test.yml # CI: lint + bats + integration + container-build + vm-deployment + enterprise-proxy + sbom + security-audit jobs
 ├── bundles/                    # Generated CPAN bundles (gitignored)
 │   ├── bundle-<hash>.tar.gz
 │   ├── bundle-<hash>.build-info  # PERL_VERSION + UBI_IMAGE this bundle was built against

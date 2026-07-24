@@ -171,3 +171,9 @@ clean: ## Remove images (bundles are preserved)
 	@echo "==> Cleaning up images..."
 	@podman rmi -f $(IMAGE_NAME):base $(IMAGE_NAME):dev-tools $(IMAGE_NAME):carton-runner $(IMAGE_NAME):dev $(IMAGE_NAME):runtime 2>/dev/null || true
 	@echo "==> Clean complete (bundles preserved)"
+
+sbom: ## Generate a CycloneDX SBOM (OS packages via syft + CPAN modules) — needs make runtime first
+	@./scripts/generate-sbom.sh
+
+security-audit: ## Check pinned CPAN/Perl-core modules against known CVE advisories
+	@./scripts/security-audit.sh

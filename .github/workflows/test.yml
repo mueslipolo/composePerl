@@ -5,9 +5,15 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # Weekly, not per-commit: CVE advisory data moves on its own schedule,
+    # independent of what this repo pushes. See docs/security-audit.md.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
 
 jobs:
   lint:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     steps:
@@ -32,6 +38,7 @@ jobs:
         run: hadolint Containerfile.deps
 
   bats:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     steps:
@@ -47,6 +54,7 @@ jobs:
         run: bats tests/bats/
 
   integration:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     steps:
@@ -148,6 +156,7 @@ jobs:
     # cpanfile (tests/container-build/). Exercises perl-src compile, all four
     # stages of Containerfile, Containerfile.deps, deps.sh, build-image.sh,
     # and the Oracle Instant Client extraction path.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -233,6 +242,7 @@ jobs:
     # (covered separately by the vm-deployment job): scripts/fetch-artifacts.sh
     # (host-side curl) and the Containerfile's perl-src stage (microdnf, via
     # certs/ + update-ca-trust).
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -351,6 +361,7 @@ jobs:
     # VM with a plain UBI9 container (not this repo's own Containerfile) and
     # runs the real scripts/vm-*.sh against it, including a real enterprise
     # proxy + custom CA pass (tests/mitm-proxy/, same tool as enterprise-proxy).
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -519,3 +530,145 @@ jobs:
         if: always()
         run: |
           echo "=== vm-mitm-proxy.log ===" ; cat /tmp/vm-mitm-proxy.log || true
+
+  sbom:
+    # SBOM covering both halves of the bundle. General-purpose SBOM tools
+    # (syft included) have no Perl/CPAN cataloger — confirmed against syft's
+    # own source and empirically against a real build (finds real RPMs,
+    # zero CPAN entries) — so this combines syft's OS-package coverage with
+    # scripts/generate-cpan-sbom.pl's CPAN coverage into one CycloneDX
+    # document. See docs/sbom.md.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install podman and jq
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y podman jq
+
+      - name: Install syft
+        run: |
+          curl -fsSL -o /tmp/syft.tar.gz \
+            https://github.com/anchore/syft/releases/download/v1.20.0/syft_1.20.0_linux_amd64.tar.gz
+          tar xzf /tmp/syft.tar.gz -C /tmp syft
+          sudo mv /tmp/syft /usr/local/bin/syft
+          syft version
+
+      - name: Cache artifacts/ and artifacts.sha256
+        uses: actions/cache@v5
+        with:
+          path: |
+            artifacts
+            artifacts.sha256
+          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh') }}
+
+      - name: Fetch artifacts (skipped when cache hit)
+        run: scripts/fetch-artifacts.sh
+
+      - name: Assemble container-build workspace and build the curated test image
+        id: workspace
+        run: echo "WORKDIR=$(bash tests/container-build/setup.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: make bundle && make all
+        working-directory: ${{ steps.workspace.outputs.WORKDIR }}
+        run: |
+          make bundle
+          make all
+
+      - name: Install Carton + CPAN::DistnameInfo (for the CPAN half)
+        run: |
+          curl -fsSL https://cpanmin.us -o /tmp/cpanm
+          perl /tmp/cpanm --notest -n -l ~/perl5 Carton CPAN::DistnameInfo
+          echo "$HOME/perl5/bin" >> "$GITHUB_PATH"
+          echo "PERL5LIB=$HOME/perl5/lib/perl5" >> "$GITHUB_ENV"
+
+      - name: Generate the SBOM (same script `make sbom` runs locally)
+        working-directory: ${{ steps.workspace.outputs.WORKDIR }}
+        run: ./scripts/generate-sbom.sh /tmp/sbom.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: /tmp/sbom.json
+
+  security-audit:
+    # Checks pinned CPAN/Perl-core modules (via cpan-audit, CPAN::Audit —
+    # the CPAN-native equivalent of `npm audit`) AND OS packages (via
+    # trivy) against known CVE advisories. Runs weekly/on-demand rather
+    # than per-commit (advisory data changes independently of this repo's
+    # commits). The CPAN half runs against the REAL cpanfile.snapshot
+    # (~700 modules); the OS half scans the curated test-fixture image
+    # the `sbom`/`container-build` jobs already build — its OS packages
+    # (UBI base + lib-packages.conf) are identical to production, only the
+    # bundled CPAN cpanfile differs, so this is fully representative
+    # without needing the expensive real ~700-module build. See
+    # docs/security-audit.md.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install jq
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y jq
+
+      - name: Install CPAN::Audit
+        run: |
+          curl -fsSL https://cpanmin.us -o /tmp/cpanm
+          perl /tmp/cpanm --notest -n -l ~/perl5 CPAN::Audit
+          echo "$HOME/perl5/bin" >> "$GITHUB_PATH"
+          echo "PERL5LIB=$HOME/perl5/lib/perl5" >> "$GITHUB_ENV"
+
+      - name: Install trivy
+        run: |
+          curl -fsSL -o /tmp/trivy.tar.gz \
+            https://github.com/aquasecurity/trivy/releases/download/v0.72.0/trivy_0.72.0_Linux-64bit.tar.gz
+          tar xzf /tmp/trivy.tar.gz -C /tmp trivy
+          sudo mv /tmp/trivy /usr/local/bin/trivy
+          trivy --version
+
+      - name: Cache artifacts/ and artifacts.sha256
+        uses: actions/cache@v5
+        with:
+          path: |
+            artifacts
+            artifacts.sha256
+          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh') }}
+
+      - name: Fetch artifacts (skipped when cache hit)
+        run: scripts/fetch-artifacts.sh
+
+      - name: Assemble container-build workspace and build the curated test image
+        id: workspace
+        run: echo "WORKDIR=$(bash tests/container-build/setup.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: make bundle && make all (builds myapp:runtime, scanned below)
+        working-directory: ${{ steps.workspace.outputs.WORKDIR }}
+        run: |
+          make bundle
+          make all
+
+      - name: Run the security audit (same script `make security-audit` runs locally)
+        # Deliberately NOT run with working-directory set to the curated
+        # workspace: cpan-audit needs this checkout's real cpanfile.snapshot,
+        # while trivy needs the myapp:runtime image tagged above — podman's
+        # image store is global, not directory-scoped, so both are found
+        # correctly from here without any path juggling.
+        run: ./scripts/security-audit.sh /tmp/security-audit.json
+
+      - name: Upload security-audit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit
+          path: |
+            /tmp/security-audit.json
+            /tmp/security-audit.md
