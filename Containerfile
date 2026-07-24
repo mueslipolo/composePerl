@@ -94,13 +94,23 @@ RUN rm -f /etc/pki/ca-trust/source/anchors/.gitkeep && update-ca-trust
 
 # Runtime lib package list is generated from lib-packages.conf (column 1) —
 # single source of truth shared with the dev-tools -devel list below, so the
-# two can't drift apart from being hand-maintained separately.
-# Word-split command substitution instead of `awk | xargs`: this is the
-# minimal `base` stage, which deliberately has no findutils/xargs (that's
-# added in dev-tools only) — no pipe also means no pipefail/SHELL concern.
+# two can't drift apart from being hand-maintained separately. Extracted
+# with grep|cut|sed rather than awk/perl/jq: all three are already present
+# in the bare base image (no toolchain, no new dependency), and each does
+# one obvious job — grep drops comments/blanks, cut extracts the column,
+# sed trims whitespace and drops now-empty lines.
+# The pipe here isn't pipefail-protected (this minimal `base` stage predates
+# the toolchain, and podman's OCI build format ignores SHELL's own pipefail
+# option anyway — discovered the hard way in an earlier RUN in this file).
+# That's fine in this specific case: lib-packages.conf's presence is
+# guaranteed by the COPY immediately above (a missing file fails the COPY,
+# not this pipe), and `microdnf install` with an empty package list fails
+# loudly on its own (`error: Packages are not specified`, exit 1 — verified)
+# rather than silently no-op'ing, so there's no scenario where an internal
+# pipe failure here produces a silent bad build.
 COPY lib-packages.conf /tmp/lib-packages.conf
-# hadolint ignore=DL3041,SC2046,SC2015
-RUN microdnf -y install $(awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} {v=$1; gsub(/^[ \t]+|[ \t]+$/, "", v)} v!=""{print v}' /tmp/lib-packages.conf) \
+# hadolint ignore=DL3041,SC2046,SC2015,DL4006
+RUN microdnf -y install $(grep -v -E '^[[:space:]]*(#|$)' /tmp/lib-packages.conf | cut -d'|' -f1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d') \
   && rm -f /tmp/lib-packages.conf \
   && microdnf clean all \
   || { echo "==> microdnf failed - check http_proxy/https_proxy build-args and certs/ CA trust; see docs/proxy.md" >&2; exit 1; }
@@ -162,12 +172,11 @@ RUN microdnf -y install \
   || { echo "==> microdnf failed - check http_proxy/https_proxy build-args and certs/ CA trust; see docs/proxy.md" >&2; exit 1; }
 
 # -devel headers matching base's runtime libs, generated from the same
-# lib-packages.conf (column 2) base's RUN used — see the comment there.
-# Same word-split form as base, for consistency (findutils/xargs happen to
-# be available here, but there's no reason for the two stages to differ).
+# lib-packages.conf (column 2) base's RUN used — see the comment there
+# (same grep|cut|sed reasoning, and the same pipefail non-concern applies).
 COPY lib-packages.conf /tmp/lib-packages.conf
-# hadolint ignore=DL3041,SC2046,SC2015
-RUN microdnf -y install $(awk -F'|' '/^[[:space:]]*#/{next} /^[[:space:]]*$/{next} {v=$2; gsub(/^[ \t]+|[ \t]+$/, "", v)} v!=""{print v}' /tmp/lib-packages.conf) \
+# hadolint ignore=DL3041,SC2046,SC2015,DL4006
+RUN microdnf -y install $(grep -v -E '^[[:space:]]*(#|$)' /tmp/lib-packages.conf | cut -d'|' -f2 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d') \
   && rm -f /tmp/lib-packages.conf \
   && microdnf clean all \
   || { echo "==> microdnf failed - check http_proxy/https_proxy build-args and certs/ CA trust; see docs/proxy.md" >&2; exit 1; }
