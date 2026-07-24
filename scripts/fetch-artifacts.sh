@@ -220,7 +220,11 @@ download() {
         return 0
     fi
     echo "==> Fetching $(basename "${dest}") from ${url}"
-    curl -fL --retry 3 -o "${dest}.part" "${url}"
+    # Constrain both the initial request and any redirect to https. Without
+    # --proto-redir, -L would happily follow an https URL down to plain http;
+    # for a not-yet-pinned artifact that redirect target would be recorded as
+    # the trusted hash on first sight (TOFU), so http must never be reachable.
+    curl -fL --proto '=https' --proto-redir '=https' --retry 3 -o "${dest}.part" "${url}"
     mv "${dest}.part" "${dest}"
 }
 

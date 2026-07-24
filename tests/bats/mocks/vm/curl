@@ -2,8 +2,9 @@
 # Mock curl for vm-bootstrap-perlbrew.bats. Logs the invocation (including
 # the proxy env vars actually seen, proving they reached the real
 # downstream consumer) and, when the URL matches perlbrew's installer,
-# prints a harmless script to stdout so `| bash` completes without ever
-# touching the network.
+# emits a harmless script. The real script downloads to a file (`-o <path>`)
+# and then runs it, so this mock honors `-o` and writes there; if no `-o` is
+# given it falls back to stdout.
 #
 # MOCK_CURL_EXIT_CODE - if set, exit with this code instead of succeeding
 #                        (simulates a real curl network/TLS failure)
@@ -16,9 +17,23 @@ if [[ -n "${MOCK_CURL_EXIT_CODE:-}" ]]; then
     exit "${MOCK_CURL_EXIT_CODE}"
 fi
 
+# Extract the -o <path> target if present.
+out_file=""
+prev=""
+for arg in "$@"; do
+    if [[ "$prev" == "-o" ]]; then
+        out_file="$arg"
+    fi
+    prev="$arg"
+done
+
 for arg in "$@"; do
     if [[ "$arg" == *install.perlbrew.pl* ]]; then
-        echo 'echo mock-perlbrew-installer-ran'
+        if [[ -n "$out_file" ]]; then
+            echo 'echo mock-perlbrew-installer-ran' > "$out_file"
+        else
+            echo 'echo mock-perlbrew-installer-ran'
+        fi
         exit 0
     fi
 done
