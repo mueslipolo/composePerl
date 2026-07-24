@@ -1,4 +1,4 @@
-.PHONY: help status base dev-tools bundle update update-all dev runtime all fetch-artifacts check-artifacts test-load-dev test-load-runtime test-full test-container-build clean
+.PHONY: help status base dev-tools bundle update update-all dev runtime all fetch-artifacts mirror-artifacts check-artifacts test-load-dev test-load-runtime test-full test-container-build clean sbom security-audit
 
 # Optional: override the UBI base image to target a different RHEL/UBI version.
 # Default is UBI9 (set in Containerfile). Example:
@@ -136,20 +136,20 @@ test-container-build: ## Full end-to-end build + lifecycle test with curated ~11
 	    /opt/perl/bin/perl /tmp/test-load.pl --expect-try-tiny-max=0.30; \
 	echo ""; \
 	echo "==> Phase 3: Snapshot pathnames before update"; \
-	grep -E "^  [A-Za-z]" "$$WORKDIR/cpanfile.snapshot" | sort > /tmp/pathnames-before.txt; \
-	echo "   captured $$(wc -l < /tmp/pathnames-before.txt) distribution pins"; \
+	grep -E "^  [A-Za-z]" "$$WORKDIR/cpanfile.snapshot" | sort > "$$WORKDIR/pathnames-before.txt"; \
+	echo "   captured $$(wc -l < "$$WORKDIR/pathnames-before.txt") distribution pins"; \
 	echo ""; \
 	echo "==> Phase 4: Update Try::Tiny (real carton update in carton-runner container)"; \
 	cd "$$WORKDIR" && $(MAKE) update MODULE=Try::Tiny; \
 	echo ""; \
 	echo "==> Phase 5: Assert scoped update — only Try-Tiny pathname changed"; \
-	grep -E "^  [A-Za-z]" "$$WORKDIR/cpanfile.snapshot" | sort > /tmp/pathnames-after.txt; \
-	diff /tmp/pathnames-before.txt /tmp/pathnames-after.txt > /tmp/pathnames-diff.txt || true; \
-	if ! grep -q "Try-Tiny" /tmp/pathnames-diff.txt; then \
+	grep -E "^  [A-Za-z]" "$$WORKDIR/cpanfile.snapshot" | sort > "$$WORKDIR/pathnames-after.txt"; \
+	diff "$$WORKDIR/pathnames-before.txt" "$$WORKDIR/pathnames-after.txt" > "$$WORKDIR/pathnames-diff.txt" || true; \
+	if ! grep -q "Try-Tiny" "$$WORKDIR/pathnames-diff.txt"; then \
 	    echo "FAIL: Try-Tiny did not change in snapshot after 'carton update Try::Tiny'"; \
-	    cat /tmp/pathnames-diff.txt; exit 1; \
+	    cat "$$WORKDIR/pathnames-diff.txt"; exit 1; \
 	fi; \
-	other_changes=$$(grep -v "Try-Tiny" /tmp/pathnames-diff.txt | grep -E "^[<>]" || true); \
+	other_changes=$$(grep -v "Try-Tiny" "$$WORKDIR/pathnames-diff.txt" | grep -E "^[<>]" || true); \
 	if [ -n "$$other_changes" ]; then \
 	    echo "FAIL: carton update Try::Tiny changed distributions other than Try-Tiny:"; \
 	    echo "$$other_changes"; exit 1; \

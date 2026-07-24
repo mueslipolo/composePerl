@@ -17,13 +17,16 @@ say "";
 my ($bundle_lib) = grep { m{/opt/cpan-modules/lib} } @INC;
 my @installed = $bundle_lib ? glob("$bundle_lib/*") : ();
 
-if ($bundle_lib && -d $bundle_lib && @installed) {
+# @installed is only non-empty when $bundle_lib was found in @INC AND glob
+# matched real entries under it (so the directory necessarily exists) — it's
+# the single authoritative signal, no extra guards needed.
+if (@installed) {
     say "Bundle path in \@INC: $bundle_lib";
     say "Installed module directories found: " . scalar(@installed);
     say "";
     say "CPAN bundle loaded successfully.";
 }
 else {
-    say "ERROR: offline CPAN bundle not found in \@INC (expected .../opt/cpan-modules/lib/perl5)";
+    say "ERROR: offline CPAN bundle not found in \@INC (expected a directory under /opt/cpan-modules/lib)";
     exit 1;
 }

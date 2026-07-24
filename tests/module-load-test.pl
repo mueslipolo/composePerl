@@ -41,8 +41,18 @@ for my $m (@modules) {
         next;
     }
 
-    eval "require $m";
-    if ($@) {
+    # Validate the name and require by path in a block eval, rather than a
+    # string eval that would compile-and-run whatever is in $m. Module names
+    # come from /tmp/cpanfile, but a string eval on them is needless exposure.
+    unless ($m =~ /\A[\w:]+\z/) {
+        push @fail, $m;
+        say "[FAIL] $m - rejected: not a valid module name";
+        next;
+    }
+    (my $path = $m) =~ s{::}{/}g;
+    $path .= '.pm';
+    my $loaded = eval { require $path; 1 };
+    if (!$loaded) {
         push @fail, $m;
         say "[FAIL] $m - $@";
     } else {
@@ -64,9 +74,7 @@ if (@skipped) {
     say "";
     say "Skipped modules:";
     for my $skip (@skipped) {
-        my $module = ref($skip) eq 'HASH' ? $skip->{module} : $skip;
-        my $reason = ref($skip) eq 'HASH' ? $skip->{reason} : 'unknown';
-        say sprintf("  - %-30s (%s)", $module, $reason);
+        say sprintf("  - %-30s (%s)", $skip->{module}, $skip->{reason});
     }
 }
 
