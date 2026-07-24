@@ -1,4 +1,7 @@
-.PHONY: help status base dev-tools bundle update update-all dev runtime all run run-runtime fetch-artifacts mirror-artifacts check-artifacts test test-load-dev test-load-runtime test-full test-container-build clean sbom security-audit bundle-common common-dev common-runtime
+.PHONY: help status base dev-tools bundle update update-all dev runtime all run run-runtime fetch-artifacts mirror-artifacts check-artifacts test test-load-dev test-load-runtime test-full test-container-build clean sbom security-audit bundle-common bundle-component common-dev common-runtime
+
+# Multi-component: directory holding the shared common cpanfile(.snapshot).
+COMMON_DIR ?= common
 
 # Optional: override the UBI base image to target a different RHEL/UBI version.
 # Default is UBI9 (set in Containerfile). Example:
@@ -98,6 +101,12 @@ all: bundle ## Generate bundle and build both dev and runtime images
 # ── Multi-component platform (design: docs/multi-component.md) ────────────────
 bundle-common: check-artifacts ## Build the shared common BOM bundle into bundles/common/ (container path, like `make bundle`)
 	@./scripts/deps.sh bundle-common
+
+bundle-component: ## Resolve+gate+bundle one component against common into bundles/<name>/ (COMPONENT=components/<name>; needs carton)
+	@if [ -z "$(COMPONENT)" ]; then \
+	    echo "ERROR: COMPONENT=components/<name> required (e.g. make bundle-component COMPONENT=components/example)"; exit 2; \
+	fi
+	@./scripts/bundle-component.sh "$(COMMON_DIR)" "$(COMPONENT)"
 
 common-dev: check-artifacts ## Build the common-dev platform image ($(IMAGE_NAME):common-dev; needs bundle-common first)
 	@podman build --target common-dev -t $(IMAGE_NAME):common-dev \
