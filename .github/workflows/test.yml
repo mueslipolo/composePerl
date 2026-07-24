@@ -17,19 +17,29 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs for the same ref so the expensive podman-build jobs
+# don't pile up on rapid pushes / PR updates.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: ShellCheck
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y shellcheck
-          shellcheck scripts/*.sh tests/container-build/setup.sh tests/mitm-proxy/generate-test-ca.sh
+          # Include the bats mock executables: they are real bash run under
+          # `set -eu` on the test PATH, so they deserve linting too.
+          shellcheck scripts/*.sh tests/container-build/setup.sh tests/mitm-proxy/generate-test-ca.sh \
+            tests/bats/mocks/podman tests/bats/mocks/*/*
 
       - name: Install hadolint
         run: |
@@ -50,9 +60,10 @@ jobs:
   bats:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install bats-core
         run: |
@@ -67,9 +78,10 @@ jobs:
   integration:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install cpanm, Carton, and cpm
         run: |
@@ -177,7 +189,7 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install podman
         run: |
@@ -185,7 +197,7 @@ jobs:
           sudo apt-get install -y podman
 
       - name: Cache artifacts/ and artifacts.sha256
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           # artifacts.sha256 is the lockfile fetch-artifacts.sh pins hashes
           # into — it must be cached alongside artifacts/ itself, or every
@@ -195,7 +207,7 @@ jobs:
             artifacts
             artifacts.sha256
           # Rebuild cache whenever the fetch script (URLs or pins) changes.
-          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh') }}
+          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh', 'Containerfile') }}
 
       - name: Fetch artifacts (skipped when cache hit)
         run: scripts/fetch-artifacts.sh
@@ -263,7 +275,7 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install podman
         run: |
@@ -271,12 +283,12 @@ jobs:
           sudo apt-get install -y podman
 
       - name: Cache artifacts/ and artifacts.sha256
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             artifacts
             artifacts.sha256
-          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh') }}
+          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh', 'Containerfile') }}
 
       - name: Fetch artifacts (skipped when cache hit) — feeds the Containerfile-build case below
         run: scripts/fetch-artifacts.sh
@@ -382,7 +394,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install podman
         run: |
@@ -390,12 +402,12 @@ jobs:
           sudo apt-get install -y podman
 
       - name: Cache artifacts/ and artifacts.sha256
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             artifacts
             artifacts.sha256
-          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh') }}
+          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh', 'Containerfile') }}
 
       - name: Fetch artifacts (skipped when cache hit)
         run: scripts/fetch-artifacts.sh
@@ -559,7 +571,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install podman and jq
         run: |
@@ -577,12 +589,12 @@ jobs:
           syft version
 
       - name: Cache artifacts/ and artifacts.sha256
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             artifacts
             artifacts.sha256
-          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh') }}
+          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh', 'Containerfile') }}
 
       - name: Fetch artifacts (skipped when cache hit)
         run: scripts/fetch-artifacts.sh
@@ -614,7 +626,7 @@ jobs:
         run: ./scripts/generate-sbom.sh /tmp/sbom.json
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom
           path: /tmp/sbom.json
@@ -636,7 +648,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install jq
         run: |
@@ -666,12 +678,12 @@ jobs:
           trivy --version
 
       - name: Cache artifacts/ and artifacts.sha256
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             artifacts
             artifacts.sha256
-          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh') }}
+          key: artifacts-${{ hashFiles('scripts/fetch-artifacts.sh', 'Containerfile') }}
 
       - name: Fetch artifacts (skipped when cache hit)
         run: scripts/fetch-artifacts.sh
@@ -696,7 +708,7 @@ jobs:
 
       - name: Upload security-audit artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: security-audit
           path: /tmp/security-audit.json
