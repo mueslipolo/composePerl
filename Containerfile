@@ -259,3 +259,58 @@ USER appuser
 # at all — it reports healthy regardless of whether the app is actually up.
 
 CMD ["/opt/perl/bin/perl", "app.pl"]
+
+
+# ============================================================================
+# MULTI-COMPONENT PLATFORM STAGES (design: docs/multi-component.md)
+# ============================================================================
+# These are the shared "platform" images that component repos build FROM. They
+# are additive — the single-component perl-src→base→dev-tools→dev→runtime chain
+# above is unchanged. A component's own repo does:
+#   FROM <registry>/composeperl-common-dev  AS build   (install its delta)
+#   FROM <registry>/composeperl-common-runtime         (COPY delta + app)
+# See components/example/Containerfile for a worked template.
+
+# ----------------------------------------------------------------------------
+# common-dev - dev-tools + the shared "common" CPAN set at /opt/cpan-common
+# ----------------------------------------------------------------------------
+# The build-time base for every component: the XS toolchain (from dev-tools)
+# plus the common BOM installed into /opt/cpan-common. A component is built
+# FROM this, seeding its delta on top (see the docs "Layered install").
+FROM dev-tools AS common-dev
+
+WORKDIR /opt/common-install
+COPY artifacts/cpm /opt/perl/bin/cpm
+COPY common/cpanfile common/cpanfile.snapshot ./
+COPY bundles/common/bundle-latest.tar.gz ./common-bundle.tar.gz
+# Same offline, snapshot-removed install the single-component dev stage uses,
+# but targeting the shared /opt/cpan-common tree.
+# hadolint ignore=DL3003
+RUN tar xzf common-bundle.tar.gz \
+    && rm -f cpanfile.snapshot \
+    && cpm install -L /opt/cpan-common --resolver "02packages,file://$PWD/vendor/cache" \
+    && rm -rf /opt/common-install ~/.perl-cpm
+
+ENV PERL5LIB="/opt/cpan-common/lib/perl5:${PERL5LIB}"
+
+# ----------------------------------------------------------------------------
+# common-runtime - base + the shared common libs, no toolchain (runtime base)
+# ----------------------------------------------------------------------------
+# The runtime base for every component: clean `base` lineage (identical runtime
+# libs to dev) plus /opt/cpan-common copied from common-dev — no compilers, no
+# Carton/cpm. A component runtime is FROM this, COPYing only its delta layer
+# and its app on top.
+FROM base AS common-runtime
+
+COPY --from=common-dev /opt/cpan-common /opt/cpan-common
+ENV PERL5LIB="/opt/cpan-common/lib/perl5:${PERL5LIB}"
+
+# Non-root, same as the single-component runtime.
+# hadolint ignore=DL3041
+RUN { microdnf install -y shadow-utils \
+        || { echo "==> microdnf failed - check http_proxy/https_proxy build-args and certs/ CA trust; see docs/proxy.md" >&2; exit 1; }; } \
+    && useradd -m -u 1001 appuser \
+    && microdnf remove -y shadow-utils \
+    && microdnf clean all
+
+USER appuser

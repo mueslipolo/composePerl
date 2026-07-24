@@ -1,4 +1,4 @@
-.PHONY: help status base dev-tools bundle update update-all dev runtime all run run-runtime fetch-artifacts mirror-artifacts check-artifacts test test-load-dev test-load-runtime test-full test-container-build clean sbom security-audit
+.PHONY: help status base dev-tools bundle update update-all dev runtime all run run-runtime fetch-artifacts mirror-artifacts check-artifacts test test-load-dev test-load-runtime test-full test-container-build clean sbom security-audit bundle-common common-dev common-runtime
 
 # Optional: override the UBI base image to target a different RHEL/UBI version.
 # Default is UBI9 (set in Containerfile). Example:
@@ -94,6 +94,20 @@ runtime: check-artifacts ## Build the runtime image ($(IMAGE_NAME):runtime)
 
 all: bundle ## Generate bundle and build both dev and runtime images
 	@./scripts/build-image.sh all
+
+# ── Multi-component platform (design: docs/multi-component.md) ────────────────
+bundle-common: ## Resolve + bundle the shared common/ set into bundles/common/ (needs carton)
+	@./scripts/bundle-common.sh
+
+common-dev: check-artifacts ## Build the common-dev platform image ($(IMAGE_NAME):common-dev; needs bundle-common first)
+	@podman build --target common-dev -t $(IMAGE_NAME):common-dev \
+	    $(if $(UBI_IMAGE),--build-arg UBI_IMAGE=$(UBI_IMAGE),) \
+	    -f Containerfile .
+
+common-runtime: check-artifacts ## Build the common-runtime platform image ($(IMAGE_NAME):common-runtime)
+	@podman build --target common-runtime -t $(IMAGE_NAME):common-runtime \
+	    $(if $(UBI_IMAGE),--build-arg UBI_IMAGE=$(UBI_IMAGE),) \
+	    -f Containerfile .
 
 run: ## Run the app in the dev image (podman run --rm $(IMAGE_NAME):dev)
 	@podman run --rm $(IMAGE_NAME):dev

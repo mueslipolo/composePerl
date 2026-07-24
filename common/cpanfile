@@ -1,0 +1,13 @@
+# common/cpanfile — the SHARED CPAN set every component inherits (the "BOM").
+#
+# This is the heart of the multi-component model (docs/multi-component.md):
+# `make bundle-common` resolves+locks it into common/cpanfile.snapshot and
+# bundles/common/, which the platform's common-dev / common-runtime images
+# install. Components add only their delta on top and may NOT re-pin anything
+# here (enforced by scripts/bom-gate.pl).
+#
+# Migration note: this starts as your current monolithic server cpanfile and
+# shrinks over time as app-specific deps move into per-component cpanfiles.
+# Seeded here with a tiny example set so the flow is runnable out of the box.
+requires 'Try::Tiny';
+requires 'Capture::Tiny';

@@ -1,0 +1,4 @@
+# components/example/cpanfile — this component's OWN direct deps (its delta).
+# Modules already in common/ are inherited (same pinned version); listing one
+# here at an incompatible version is a hard error (scripts/bom-gate.pl).
+requires 'Test::Fatal';

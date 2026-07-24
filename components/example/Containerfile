@@ -1,0 +1,47 @@
+# Example component Containerfile (design: ../../docs/multi-component.md).
+#
+# Template for a component's OWN repo. It builds on the platform's published
+# common-dev / common-runtime images: install this component's delta on top of
+# the shared /opt/cpan-common, prune the files common already provides (safe —
+# the BOM gate pins shared distributions to the same version), then ship a
+# runtime that is common-runtime + this delta + the app.
+#
+# In a real component repo the FROM images are pinned by digest to a published
+# platform version; here they default to locally-built tags so `make
+# build-example-component` can build it end to end against this repo's own
+# common-dev / common-runtime.
+
+ARG COMMON_IMAGE=myapp
+ARG COMMON_DEV_TAG=common-dev
+ARG COMMON_RUNTIME_TAG=common-runtime
+
+# ---- build: install the component's delta on top of common, then prune ----
+# hadolint ignore=DL3006
+FROM ${COMMON_IMAGE}:${COMMON_DEV_TAG} AS build
+
+WORKDIR /opt/component-install
+COPY cpanfile cpanfile.snapshot ./
+COPY bundle-latest.tar.gz ./component-bundle.tar.gz
+# Install the full closure, then delete every file the common layer already
+# provides — leaving /opt/cpan-component holding only this component's delta.
+# (scripts/install-component-layered.sh is the standalone form of this.)
+# hadolint ignore=DL3003
+RUN tar xzf component-bundle.tar.gz \
+    && rm -f cpanfile.snapshot \
+    && cpm install -L /opt/cpan-component --resolver "02packages,file://$PWD/vendor/cache" \
+    && ( cd /opt/cpan-component \
+         && find . -type f -exec sh -c '! [ -e "/opt/cpan-common/$1" ] || rm -f "$1"' _ {} \; \
+         && find . -type d -empty -delete ) \
+    && rm -rf /opt/component-install ~/.perl-cpm
+
+# ---- runtime: common-runtime + the pruned delta + the app ----
+# hadolint ignore=DL3006
+FROM ${COMMON_IMAGE}:${COMMON_RUNTIME_TAG}
+
+COPY --from=build /opt/cpan-component /opt/cpan-component
+ENV PERL5LIB="/opt/cpan-component/lib/perl5:${PERL5LIB}"
+
+WORKDIR /app
+COPY app/ ./
+
+CMD ["/opt/perl/bin/perl", "app.pl"]
