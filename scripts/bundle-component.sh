@@ -44,9 +44,21 @@ trap 'rm -rf "${workdir}"' EXIT
 echo "==> Resolving component '${name}' against the common BOM..."
 "${RESOLVE}" "${common_dir}" "${component_dir}/cpanfile" "${workdir}"
 
-# 2. Vendor the resolved closure.
-echo "==> Vendoring (carton bundle)..."
+# 2. Vendor the resolved closure, then prune the mirror to the DELTA only —
+#    the distributions unique to this component (delta.txt from the gate).
+#    Shared dists are dropped: the component install seeds them from the common
+#    layer (see scripts/install-component-layered.sh), so shipping them here
+#    would just bloat every component bundle with copies of common.
+echo "==> Vendoring (carton bundle) + pruning to the delta..."
 ( cd "${workdir}" && carton bundle >/dev/null )
+keep="$(mktemp)"
+trap 'rm -rf "${workdir}" "${keep}"' EXIT
+while read -r dist ver _; do
+    [[ -n "${dist}" ]] && echo "${dist}-${ver}.tar.gz" >> "${keep}"
+done < "${workdir}/delta.txt"
+while IFS= read -r -d '' tarball; do
+    grep -qxF "$(basename "${tarball}")" "${keep}" || rm -f "${tarball}"
+done < <(find "${workdir}/vendor/cache" -type f -name '*.tar.gz' -print0)
 
 # 3. Package bundles/<name>/bundle-<hash>.tar.gz (+ delta.txt) + build-info + symlink.
 mkdir -p "${out_dir}"
