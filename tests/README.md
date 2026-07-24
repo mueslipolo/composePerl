@@ -260,6 +260,7 @@ ______________________________________________________________________
 ├── bats job              — Layer 1, ~10 sec, no external deps
 ├── integration job       — Layer 2, ~3 min, host-side carton→cpm pipeline (4 modules)
 ├── container-build job   — Layer 4, ~10-16 min, full Containerfile build (11 modules, real Oracle)
+├── multi-component job    — common-dev/common-runtime platform + example component e2e (docs/multi-component.md): bundle-common → common images → bundle-component → build+run, delta-only/non-root/no-toolchain invariants
 ├── vm-deployment job     — Layer 5, real perlbrew install + bundle deploy + proxy/CA verification
 ├── enterprise-proxy job  — fetch-artifacts.sh + Containerfile build, real proxy/CA verification
 ├── sbom job              — CycloneDX SBOM: syft (OS packages) + generate-cpan-sbom.pl (CPAN modules)

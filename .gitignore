@@ -22,3 +22,6 @@ test-reports/
 # Python bytecode (tests/mitm-proxy/)
 __pycache__/
 *.pyc
+
+# CI-staged component bundle (copied next to the example Containerfile at build time)
+components/*/bundle-*.tar.gz
