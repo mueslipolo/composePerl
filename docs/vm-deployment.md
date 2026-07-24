@@ -34,6 +34,17 @@ recipe for a perlbrew target instead of a container `COPY`.
 - The `cpm` fatpack (`artifacts/cpm` in this repo) staged onto the VM
   alongside the bundle. It's a single self-contained Perl script — no
   install step, no network access required at install time.
+- **A C build toolchain on the VM**, if the bundle contains XS (compiled)
+  modules — which this repo's does (`DBD::Oracle`, `DBD::Pg`, `JSON::XS`,
+  `Moose`, …). The bundle's `vendor/cache` holds CPAN *source* distributions,
+  not pre-compiled objects, so `cpm install` **compiles XS locally on the VM**
+  (that's what makes one bundle work on both a container and a VM). Concretely
+  the VM needs `gcc`, `make`, `perl-devel`/`perl-core`, the `-devel` headers
+  for each system library the modules link against (the column-2 entries in
+  [`lib-packages.conf`](../lib-packages.conf)), and — for `DBD::Oracle` — the
+  **Oracle Instant Client SDK headers**. This mirrors the container path's
+  `dev-tools` stage; a bare runtime-only VM will fail at `cpm install`, not at
+  the compatibility gate.
 
 ### Enterprise proxy and custom CA
 
@@ -105,7 +116,10 @@ PERL_VERSION=5.28.1
 UBI_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.6
 ```
 
-Plain `KEY=VALUE`, so `scripts/vm-check-compat.sh` can `source` it directly:
+Plain `KEY=VALUE`. `scripts/vm-check-compat.sh` reads the two keys it needs by
+parsing them (with `grep`/`sed`), **not** by `source`-ing the file — a bundle's
+`.build-info` travels with the bundle from an unspecified channel, and sourcing
+would execute anything a tampered stamp contained. Parsing keeps it inert data:
 
 ```bash
 # On the VM, before installing — fail here, not three steps into cpm install.
