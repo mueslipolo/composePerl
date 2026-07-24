@@ -29,9 +29,12 @@ for f in "${BUNDLE_TARBALL}" "${BUILD_INFO}" "${CPM_BIN}"; do
 done
 
 # PERL_VERSION comes from the bundle's own stamp, not a value copied in by
-# hand. Run vm-check-compat.sh against this same file first.
-# shellcheck source=/dev/null
-source "${BUILD_INFO}"
+# hand. Run vm-check-compat.sh against this same file first. The stamp is
+# data (KEY=VALUE), not code: parse the key we need rather than `source`-ing
+# it, so a tampered .build-info can't execute arbitrary shell on the VM.
+# `|| true`: an absent PERL_VERSION must fall through to the friendly error
+# below, not abort the pipeline under set -e/pipefail.
+PERL_VERSION="$(grep -m1 -E '^PERL_VERSION=' "${BUILD_INFO}" | sed -E 's/^PERL_VERSION=//; s/^["'\'']//; s/["'\'']$//' || true)"
 
 if [[ -z "${PERL_VERSION:-}" ]]; then
     echo "ERROR: ${BUILD_INFO} did not set PERL_VERSION" >&2
@@ -52,7 +55,7 @@ FULL_LIB_NAME="${PERL_INSTALLATION}@${LIB_NAME}"
 
 # 1. Create the lib if this is a first-time deploy (idempotent: perlbrew
 #    errors if it already exists — check first, don't just ignore the error).
-if perlbrew lib list | grep -qF "${FULL_LIB_NAME}"; then
+if perlbrew lib list | sed -E 's/^[* ]*//; s/[[:space:]].*$//' | grep -qxF "${FULL_LIB_NAME}"; then
     echo "==> Lib ${FULL_LIB_NAME} already exists"
 else
     echo "==> Creating lib ${FULL_LIB_NAME}..."

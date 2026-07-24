@@ -136,7 +136,13 @@ for my $i (0 .. $#modules) {
         ? "Custom command: $custom_cmd"
         : "Command: cpanm --test-only --verbose $module";
     say "        $cmd_label" if $custom_cmd;
-    my $test_cmd = $env_string . ($custom_cmd || "cpanm --test-only --verbose $module");
+    # Shell-quote the module name in the default command the same way env
+    # values are quoted above: a distribution name is data spliced into a
+    # shell string, so it must not be able to introduce shell metacharacters.
+    # (A custom_cmd is, by contract, an operator-authored shell command and is
+    # run as-is.)
+    my $default_cmd = 'cpanm --test-only --verbose ' . shell_quote($module);
+    my $test_cmd = $env_string . ($custom_cmd || $default_cmd);
 
     # Run the test
     my $output = `$test_cmd 2>&1`;

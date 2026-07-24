@@ -127,7 +127,7 @@ export PATH="${PERLBREW_ROOT}/bin:${PATH}"
 # names a standard install "perl-<version>" internally regardless of what
 # form you pass it — see the version-compatibility gate, which checks for
 # exactly that prefix.
-if perlbrew list | grep -qF "perl-${PERL_VERSION}"; then
+if perlbrew list | sed -E 's/^[* ]*//; s/[[:space:]].*$//' | grep -qxF "perl-${PERL_VERSION}"; then
     echo "==> perl-${PERL_VERSION} already installed"
 elif [[ -n "${LOCAL_TARBALL}" ]]; then
     echo "==> Installing perl-${PERL_VERSION} from local tarball ${LOCAL_TARBALL} (offline, no network needed for the compile)..."

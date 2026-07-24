@@ -344,6 +344,16 @@ ls -la "${ARTIFACTS_DIR}"
 if [ "${MIRROR_MODE}" -eq 1 ]; then
     echo ""
     echo "==> Mirroring artifacts into Nexus (${NEXUS_BASE_URL}/)..."
+    # Pass credentials through a mode-600 curl config file rather than `-u` on
+    # the command line, so NEXUS_PASSWORD never appears in `ps`/proc while each
+    # (repeated) upload runs. Escape backslash and double-quote for curl's
+    # config-file string syntax (user = "value").
+    esc_user=${NEXUS_USER//\\/\\\\}; esc_user=${esc_user//\"/\\\"}
+    esc_pass=${NEXUS_PASSWORD//\\/\\\\}; esc_pass=${esc_pass//\"/\\\"}
+    nexus_curl_cfg="$(mktemp)"
+    chmod 600 "${nexus_curl_cfg}"
+    trap 'rm -f "${nexus_curl_cfg}"' EXIT
+    printf 'user = "%s:%s"\n' "${esc_user}" "${esc_pass}" > "${nexus_curl_cfg}"
     for f in "${PERL_TARBALL}" \
         "${ARTIFACTS_DIR}/cpanm-${CPANM_VERSION}" \
         "${ARTIFACTS_DIR}/cpm-${CPM_VERSION}" \
@@ -351,7 +361,9 @@ if [ "${MIRROR_MODE}" -eq 1 ]; then
         "${ARTIFACTS_DIR}/${ORACLE_SDK_ZIP}"; do
         name="$(basename "${f}")"
         echo "    uploading ${name}..."
-        curl -fsSL -u "${NEXUS_USER}:${NEXUS_PASSWORD}" --upload-file "${f}" "${NEXUS_BASE_URL}/${name}"
+        curl -fsSL --config "${nexus_curl_cfg}" --upload-file "${f}" "${NEXUS_BASE_URL}/${name}"
     done
+    rm -f "${nexus_curl_cfg}"
+    trap - EXIT
     echo "==> Mirror upload complete."
 fi

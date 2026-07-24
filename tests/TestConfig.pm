@@ -121,8 +121,11 @@ sub get_all_skip_test {
 sub parse_cpanfile_modules {
     my ($class, $cpanfile) = @_;
 
+    # Accept both quoting styles a cpanfile may use: requires "Foo" and the
+    # equally valid requires 'Foo'. Matching only double quotes silently drops
+    # single-quoted modules, so they'd never be load- or suite-tested.
     open my $fh, '<', $cpanfile or die "Cannot open $cpanfile: $!";
-    my @modules = map { /requires\s+"([^"]+)"/ ? $1 : () } grep { !/^\s*#/ } <$fh>;
+    my @modules = map { /requires\s+(["'])([^"']+)\1/ ? $2 : () } grep { !/^\s*#/ } <$fh>;
     close $fh;
 
     return @modules;
