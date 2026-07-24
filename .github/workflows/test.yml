@@ -11,6 +11,12 @@ on:
     - cron: '0 6 * * 1'
   workflow_dispatch:
 
+# Least privilege: every job here only reads the repo and uploads run-scoped
+# artifacts (which use the runtime token, not GITHUB_TOKEN scopes). Nothing
+# writes back to the repo, so drop the default read-write grant on `push`.
+permissions:
+  contents: read
+
 jobs:
   lint:
     if: github.event_name != 'schedule'
@@ -27,9 +33,13 @@ jobs:
 
       - name: Install hadolint
         run: |
-          curl -fsSL -o /usr/local/bin/hadolint \
+          # Pinned by sha256, mirroring the repo's artifacts.sha256 TOFU policy:
+          # a tag alone does not protect against a tampered/moved release asset.
+          curl -fsSL --proto '=https' --proto-redir '=https' -o /tmp/hadolint \
             https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64
-          chmod +x /usr/local/bin/hadolint
+          echo "56de6d5e5ec427e17b74fa48d51271c7fc0d61244bf5c90e828aab8362d55010  /tmp/hadolint" \
+            | sha256sum -c -
+          sudo install -m 0755 /tmp/hadolint /usr/local/bin/hadolint
 
       - name: hadolint Containerfile
         run: hadolint Containerfile
@@ -46,8 +56,9 @@ jobs:
 
       - name: Install bats-core
         run: |
-          git clone --depth 1 --branch v1.11.1 \
-            https://github.com/bats-core/bats-core.git /tmp/bats-core
+          # Pin to the immutable commit v1.11.1 resolves to, not the movable tag.
+          git clone https://github.com/bats-core/bats-core.git /tmp/bats-core
+          git -C /tmp/bats-core checkout --quiet b640ec3cf2c7c9cfc9e6351479261186f76eeec8
           sudo /tmp/bats-core/install.sh /usr/local
 
       - name: Run bats tests
@@ -62,7 +73,12 @@ jobs:
 
       - name: Install cpanm, Carton, and cpm
         run: |
-          curl -fsSL https://cpanmin.us -o /tmp/cpanm
+          # Pin cpanm to the same version+hash the repo already trusts in
+          # artifacts.sha256, instead of the unversioned cpanmin.us redirect.
+          curl -fsSL --proto '=https' --proto-redir '=https' -o /tmp/cpanm \
+            https://raw.githubusercontent.com/miyagawa/cpanminus/1.7048/cpanm
+          echo "4c5dcaac65e0c3e6e4272fd0f5c0a9c9ebdcbb29cdf329b18478b52f6883071c  /tmp/cpanm" \
+            | sha256sum -c -
           perl /tmp/cpanm --notest -n -l ~/perl5 Carton App::cpm
           echo "$HOME/perl5/bin" >> "$GITHUB_PATH"
           echo "PERL5LIB=$HOME/perl5/lib/perl5" >> "$GITHUB_ENV"
@@ -552,8 +568,10 @@ jobs:
 
       - name: Install syft
         run: |
-          curl -fsSL -o /tmp/syft.tar.gz \
+          curl -fsSL --proto '=https' --proto-redir '=https' -o /tmp/syft.tar.gz \
             https://github.com/anchore/syft/releases/download/v1.20.0/syft_1.20.0_linux_amd64.tar.gz
+          echo "689e12c5cbf67521ce61b9c126068f9eaabe1223e77971b2fede50033ff6b5cc  /tmp/syft.tar.gz" \
+            | sha256sum -c -
           tar xzf /tmp/syft.tar.gz -C /tmp syft
           sudo mv /tmp/syft /usr/local/bin/syft
           syft version
@@ -581,7 +599,12 @@ jobs:
 
       - name: Install Carton + CPAN::DistnameInfo (for the CPAN half)
         run: |
-          curl -fsSL https://cpanmin.us -o /tmp/cpanm
+          # Pin cpanm to the same version+hash the repo already trusts in
+          # artifacts.sha256, instead of the unversioned cpanmin.us redirect.
+          curl -fsSL --proto '=https' --proto-redir '=https' -o /tmp/cpanm \
+            https://raw.githubusercontent.com/miyagawa/cpanminus/1.7048/cpanm
+          echo "4c5dcaac65e0c3e6e4272fd0f5c0a9c9ebdcbb29cdf329b18478b52f6883071c  /tmp/cpanm" \
+            | sha256sum -c -
           perl /tmp/cpanm --notest -n -l ~/perl5 Carton CPAN::DistnameInfo
           echo "$HOME/perl5/bin" >> "$GITHUB_PATH"
           echo "PERL5LIB=$HOME/perl5/lib/perl5" >> "$GITHUB_ENV"
@@ -622,15 +645,22 @@ jobs:
 
       - name: Install CPAN::Audit
         run: |
-          curl -fsSL https://cpanmin.us -o /tmp/cpanm
+          # Pin cpanm to the same version+hash the repo already trusts in
+          # artifacts.sha256, instead of the unversioned cpanmin.us redirect.
+          curl -fsSL --proto '=https' --proto-redir '=https' -o /tmp/cpanm \
+            https://raw.githubusercontent.com/miyagawa/cpanminus/1.7048/cpanm
+          echo "4c5dcaac65e0c3e6e4272fd0f5c0a9c9ebdcbb29cdf329b18478b52f6883071c  /tmp/cpanm" \
+            | sha256sum -c -
           perl /tmp/cpanm --notest -n -l ~/perl5 CPAN::Audit
           echo "$HOME/perl5/bin" >> "$GITHUB_PATH"
           echo "PERL5LIB=$HOME/perl5/lib/perl5" >> "$GITHUB_ENV"
 
       - name: Install trivy
         run: |
-          curl -fsSL -o /tmp/trivy.tar.gz \
+          curl -fsSL --proto '=https' --proto-redir '=https' -o /tmp/trivy.tar.gz \
             https://github.com/aquasecurity/trivy/releases/download/v0.72.0/trivy_0.72.0_Linux-64bit.tar.gz
+          echo "bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea  /tmp/trivy.tar.gz" \
+            | sha256sum -c -
           tar xzf /tmp/trivy.tar.gz -C /tmp trivy
           sudo mv /tmp/trivy /usr/local/bin/trivy
           trivy --version

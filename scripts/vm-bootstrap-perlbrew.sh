@@ -9,6 +9,10 @@ set -Eeuo pipefail
 #          behind an enterprise proxy / custom CA if the VM needs one.
 # Usage:   vm-bootstrap-perlbrew.sh <perl-version> [local-perl-tarball]
 # Env:     PERLBREW_ROOT           - install location, default $HOME/perl5/perlbrew
+#          PERLBREW_INSTALLER_URL    - override the installer URL (must be https)
+#          PERLBREW_INSTALLER_SHA256 - if set, the installer is verified against
+#                                    this sha256 before running (recommended in
+#                                    locked-down/offline environments)
 #          VM_CA_CERT              - optional path to a corporate CA cert to trust
 #          VM_CA_TRUST_ANCHORS_DIR - where to install it, default
 #                                    /etc/pki/ca-trust/source/anchors (RHEL-family)
@@ -91,7 +95,30 @@ if [[ -x "${PERLBREW_ROOT}/bin/perlbrew" ]]; then
     echo "==> perlbrew already installed at ${PERLBREW_ROOT}"
 else
     echo "==> Installing perlbrew into ${PERLBREW_ROOT}..."
-    curl -L https://install.perlbrew.pl | bash
+    # Never pipe the installer straight into bash: without -f an HTTP error
+    # page (proxy 403, captive portal, 404) comes back as a 200-ish body and
+    # would be executed as a shell script. Download to a file first with -f
+    # (fail on HTTP errors) and https-only redirects, then optionally verify
+    # its sha256 before running.
+    installer_url="${PERLBREW_INSTALLER_URL:-https://install.perlbrew.pl}"
+    installer="$(mktemp)"
+    # EXIT-time cleanup (RETURN traps only fire inside functions). The ERR
+    # trap above is untouched — it fires first on failure, then EXIT runs this.
+    trap 'rm -f "${installer}"' EXIT
+    curl -fsSL --proto '=https' --proto-redir '=https' -o "${installer}" "${installer_url}"
+    if [[ ! -s "${installer}" ]]; then
+        echo "ERROR: perlbrew installer download from ${installer_url} was empty" >&2
+        exit 1
+    fi
+    if [[ -n "${PERLBREW_INSTALLER_SHA256:-}" ]]; then
+        echo "${PERLBREW_INSTALLER_SHA256}  ${installer}" | sha256sum -c - >/dev/null \
+            || { echo "ERROR: perlbrew installer sha256 mismatch — refusing to run" >&2; exit 1; }
+        echo "==> perlbrew installer verified against PERLBREW_INSTALLER_SHA256"
+    else
+        echo "==> WARNING: running perlbrew installer without a pinned sha256" \
+             "(set PERLBREW_INSTALLER_SHA256 to verify integrity)" >&2
+    fi
+    bash "${installer}"
 fi
 
 export PATH="${PERLBREW_ROOT}/bin:${PATH}"
