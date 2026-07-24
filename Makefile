@@ -1,4 +1,4 @@
-.PHONY: help status base dev-tools bundle update update-all dev runtime all fetch-artifacts mirror-artifacts check-artifacts test-load-dev test-load-runtime test-full test-container-build clean sbom security-audit
+.PHONY: help status base dev-tools bundle update update-all dev runtime all run run-runtime fetch-artifacts mirror-artifacts check-artifacts test test-load-dev test-load-runtime test-full test-container-build clean sbom security-audit
 
 # Optional: override the UBI base image to target a different RHEL/UBI version.
 # Default is UBI9 (set in Containerfile). Example:
@@ -34,7 +34,7 @@ help: ## Show this help message
 	@echo "Available targets:"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 
 status: ## Check status of bundles and images
@@ -94,6 +94,22 @@ runtime: check-artifacts ## Build the runtime image ($(IMAGE_NAME):runtime)
 
 all: bundle ## Generate bundle and build both dev and runtime images
 	@./scripts/build-image.sh all
+
+run: ## Run the app in the dev image (podman run --rm $(IMAGE_NAME):dev)
+	@podman run --rm $(IMAGE_NAME):dev
+
+run-runtime: ## Run the app in the runtime image (podman run --rm $(IMAGE_NAME):runtime)
+	@podman run --rm $(IMAGE_NAME):runtime
+
+test: ## Fast unit tests: run the bats suite (no containers/Oracle/internet, ~10s)
+	@if command -v bats >/dev/null 2>&1; then \
+	    bats tests/bats/; \
+	else \
+	    echo "ERROR: bats not installed. Install bats-core:"; \
+	    echo "  git clone --depth 1 https://github.com/bats-core/bats-core.git /tmp/bats-core && sudo /tmp/bats-core/install.sh /usr/local"; \
+	    echo "  (see tests/README.md)"; \
+	    exit 1; \
+	fi
 
 test-load-dev: ## Quick test: verify all Perl libraries can be loaded in dev image
 	@./scripts/test-load-modules.sh dev

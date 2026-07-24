@@ -1,5 +1,30 @@
 # Troubleshooting
 
+## Oracle Instant Client download 404s (or: I don't use Oracle)
+
+```
+==> Fetching instantclient-basiclite... 
+curl: (22) The requested URL returned error: 404
+```
+
+**Cause**: Oracle delists older Instant Client releases, so the pinned version
+eventually stops being downloadable. `make bundle`/`dev`/`runtime` all require
+both Instant Client zips (`check-artifacts` in the `Makefile`), so this blocks
+the whole build — including for people who don't use Oracle at all.
+
+**Solution (delisting)**: Pick a currently-available version from Oracle's
+[Instant Client download page](https://www.oracle.com/database/technologies/instant-client/linux-x86-64-downloads.html)
+and update `ORACLE_IC_VERSION` (and, if the path changed, `ORACLE_IC_SUBDIR`)
+near the top of `scripts/fetch-artifacts.sh`, then re-run `make fetch-artifacts`.
+The first fetch of a new version is trust-on-first-use — it gets pinned into
+`artifacts.sha256` and verified on every run thereafter.
+
+**If you don't use Oracle**: there is currently no opt-out — the Containerfile
+`base`/`dev-tools` stages and `check-artifacts` assume Oracle is present.
+Making Oracle optional (`WITH_ORACLE`, default off) is tracked as future work;
+until then, you must supply both zips to build. If you're only exercising the
+fast unit layer, `make test` needs neither Oracle nor a build.
+
 ## Bundle not found
 
 ```

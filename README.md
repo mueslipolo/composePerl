@@ -25,13 +25,21 @@ Everything from here down — the Containerfile stages, `make dev`/`make runtime
 
 ## Quick Start
 
+> **Zero-setup sanity check first:** `make test` runs the bats unit suite
+> (~10s, no containers, no Oracle, no internet) — a fast way to confirm the
+> repo is healthy on your machine before committing to the heavier build below.
+
 ### 1. Check Status
 
 ```bash
 make status
 ```
 
-Shows current state of dependencies, bundles, and images with color-coded output.
+Shows current state of dependencies, bundles, and images with color-coded
+output. Note: the image section reports on the *container* path — if you're
+only using the VM/bundle path, `[MISSING] myapp:dev` warnings are expected and
+irrelevant. (Also: `make status` exits non-zero when anything needs building,
+which is normal on a fresh clone — don't chain it with `&&`.)
 
 ### 2. Generate CPAN Bundle
 
@@ -40,6 +48,13 @@ make bundle
 ```
 
 Computes a hash from `cpanfile.snapshot`, builds the `myapp:base` image and the `carton-runner` helper (from `Containerfile.deps`), generates a CPAN mirror bundle, and saves it as `bundles/bundle-<hash>.tar.gz`.
+
+> **First run is slow and needs the network.** If `artifacts/` is empty this
+> auto-runs `make fetch-artifacts` (downloads the pinned Perl source, cpanm,
+> cpm, and Oracle Instant Client — hundreds of MB) and compiles Perl from
+> source in the `base` image (~10 min). Both are cached, so subsequent runs
+> are fast. Oracle Instant Client is licensed for use but **not for
+> redistribution** — do not publish images/artifacts containing it.
 
 ### 3. Build Images
 
@@ -101,6 +116,9 @@ make update-all               # Update all modules in cpanfile.snapshot
 make dev                      # Build development image (myapp:dev)
 make runtime                  # Build runtime image (myapp:runtime)
 make all                      # Generate bundle and build both images
+make run                      # Run the app in the dev image
+make run-runtime              # Run the app in the runtime image
+make test                     # Fast: run the bats unit suite (~10s, no containers)
 make test-load-dev            # Quick: verify all modules load in dev image
 make test-load-runtime        # Quick: verify all modules load in runtime image
 make test-full                # Full: run CPAN test suites (parallel, all CPUs)
@@ -305,9 +323,18 @@ Five-stage Containerfile build (`perl-src → base → dev-tools → dev`, with 
 
 ## Requirements
 
-- Podman or Docker
+- **Podman** — the scripts and Makefile invoke `podman` directly (including
+  `podman image exists`, which has no Docker equivalent). Docker is **not
+  currently supported**; running under Docker would need an engine-abstraction
+  pass first.
 - Bash 4+
-- Basic UNIX utilities (sha256sum, tar, readlink)
+- `curl` (used by every download in `fetch-artifacts.sh`)
+- Basic UNIX utilities (sha256sum, tar, readlink, sed, grep, awk); `git`
+  optional (enriches `make status` output)
+- **Oracle Instant Client is currently required** — `make bundle`/`dev`/
+  `runtime` all fail without both Instant Client zips in `artifacts/`. If you
+  don't use Oracle, see [`docs/troubleshooting.md`](docs/troubleshooting.md)
+  (making it optional is tracked as future work).
 
 Behind a corporate proxy: every download path (`fetch-artifacts.sh`, `microdnf`,
 `cpanm`/`carton`) honors `http_proxy`/`https_proxy`/`no_proxy` (uppercase also
