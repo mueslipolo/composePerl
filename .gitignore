@@ -17,7 +17,6 @@ test-reports/
 # Generated locally by `make sbom` / `make security-audit` (default output paths)
 /sbom.json
 /security-audit.json
-/security-audit.md
 
 # Python bytecode (tests/mitm-proxy/)
 __pycache__/

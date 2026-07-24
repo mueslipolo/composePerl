@@ -664,11 +664,9 @@ jobs:
         # correctly from here without any path juggling.
         run: ./scripts/security-audit.sh /tmp/security-audit.json
 
-      - name: Upload security-audit artifacts
+      - name: Upload security-audit artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: security-audit
-          path: |
-            /tmp/security-audit.json
-            /tmp/security-audit.md
+          path: /tmp/security-audit.json

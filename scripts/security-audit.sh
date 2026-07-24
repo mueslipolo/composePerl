@@ -20,9 +20,9 @@ set -euo pipefail
 #          optional locally: if either is missing, the OS-package section
 #          is skipped with a note rather than failing the script. Both are
 #          installed/built by CI, so the OS half always runs there.
-# Output:  <output-path> (JSON, default security-audit.json) and a sibling
-#          <output-path minus .json>.md human-readable report, always
-#          written to disk (not just stdout/$GITHUB_STEP_SUMMARY).
+# Output:  <output-path> (JSON, default security-audit.json). The report is
+#          printed to stdout and appended to $GITHUB_STEP_SUMMARY when set,
+#          not written to disk as a separate file.
 # Exit:    non-zero if either half found something.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,7 +31,6 @@ IMAGE_NAME="${IMAGE_NAME:-myapp}"
 TRIVY_SEVERITY="HIGH,CRITICAL"
 
 OUTPUT="${1:-${PROJECT_ROOT}/security-audit.json}"
-REPORT_OUTPUT="${OUTPUT%.json}.md"
 CPANFILE_SNAPSHOT="${PROJECT_ROOT}/cpanfile.snapshot"
 RUNTIME_IMAGE="${IMAGE_NAME}:runtime"
 
@@ -130,7 +129,7 @@ os_report() {
     ' "${OUTPUT}"
 }
 
-{
+REPORT="$(
     echo "# Perl/CPAN + OS-package security audit"
     echo
     echo "## CPAN / Perl-core (cpan-audit)"
@@ -140,15 +139,13 @@ os_report() {
     echo "## OS packages (trivy, HIGH/CRITICAL only)"
     echo
     os_report
-} > "${REPORT_OUTPUT}"
+)"
 
-cat "${REPORT_OUTPUT}"
+echo "${REPORT}"
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-    cat "${REPORT_OUTPUT}" >> "${GITHUB_STEP_SUMMARY}"
+    echo "${REPORT}" >> "${GITHUB_STEP_SUMMARY}"
 fi
-
-echo "==> Report written to ${REPORT_OUTPUT}"
 
 if [[ "${CPAN_STATUS}" -ne 0 || "${OS_STATUS}" -ne 0 ]]; then
     exit 1

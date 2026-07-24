@@ -94,7 +94,7 @@ EOF
   [[ "$output" == *"${IMAGE_NAME}:runtime"* || "$output" == *"trivy not installed"* ]]
 }
 
-@test "persists a Markdown report with both section headers" {
+@test "prints a report with both section headers to stdout" {
   cat > "$PROJECT_DIR/cpanfile.snapshot" <<'EOF'
 # carton snapshot format: version 1.0
 DISTRIBUTIONS
@@ -106,7 +106,7 @@ DISTRIBUTIONS
       perl 5.006
 EOF
   run_script
-  [ -f "$BATS_TEST_TMPDIR/out.md" ]
-  grep -q "## CPAN / Perl-core" "$BATS_TEST_TMPDIR/out.md"
-  grep -q "## OS packages" "$BATS_TEST_TMPDIR/out.md"
+  [[ "$output" == *"## CPAN / Perl-core"* ]]
+  [[ "$output" == *"## OS packages"* ]]
+  [ ! -f "$BATS_TEST_TMPDIR/out.md" ]
 }

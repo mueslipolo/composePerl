@@ -60,12 +60,11 @@ job's report is always complete.
 
 ## Output
 
-Two files, both written unconditionally (not just printed to the
-terminal or a CI job summary):
-
 - `security-audit.json` — raw combined output, `{"cpan": ..., "os": ...}`.
-- `security-audit.md` — the human-readable report, with `## CPAN / Perl-core` and `## OS packages` sections. Printed to stdout, written to
-  disk next to the JSON, and appended to `$GITHUB_STEP_SUMMARY` when set.
+- A report with `## CPAN / Perl-core` and `## OS packages` sections,
+  printed to stdout and appended to `$GITHUB_STEP_SUMMARY` when set. Not
+  written to disk as a separate file — a persisted copy turned out not to
+  be worth the extra artifact.
 
 ## Running locally
 
@@ -94,5 +93,4 @@ its own timeline, not this repo's commit history. It runs the CPAN half
 against the **real** `cpanfile.snapshot`, builds the same curated test
 image the `sbom`/`container-build` jobs use for the OS half (its OS
 packages are identical to production — only the bundled CPAN cpanfile
-differs), and uploads both `security-audit.json` and `security-audit.md`
-as build artifacts.
+differs), and uploads `security-audit.json` as a build artifact.
