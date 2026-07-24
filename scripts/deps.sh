@@ -245,14 +245,17 @@ cmd_update() {
     # Build the carton-runner stage
     build_carton_runner
 
-    # Determine the carton command to run
-    local CARTON_CMD=""
+    # Build the carton command as an argv array, not an interpolated string:
+    # module names reach `podman exec` as distinct arguments, so a name like
+    # 'DBI; rm -rf /' can't break out into a second shell command. `--workdir`
+    # replaces the old `cd /build && ...` wrapper (the carton-runner image's
+    # WORKDIR is /build; see Containerfile.deps).
+    local CARTON_ARGV=(carton update)
     if [[ "${UPDATE_ALL}" == "true" ]]; then
         echo "==> Updating all dependencies to latest versions..."
-        CARTON_CMD="carton update"
     else
         echo "==> Updating ${MODULES[*]} to latest version..."
-        CARTON_CMD="carton update ${MODULES[*]}"
+        CARTON_ARGV+=("${MODULES[@]}")
     fi
 
     # Create and start container
@@ -261,8 +264,8 @@ cmd_update() {
     podman start "${CONTAINER_ID}"
 
     # Execute carton command
-    echo "==> Running: ${CARTON_CMD}"
-    if ! podman exec "${CONTAINER_ID}" bash -c "cd /build && ${CARTON_CMD}"; then
+    echo "==> Running (in /build): ${CARTON_ARGV[*]}"
+    if ! podman exec --workdir /build "${CONTAINER_ID}" "${CARTON_ARGV[@]}"; then
         echo "ERROR: Carton command failed"
         podman stop "${CONTAINER_ID}" || true
         podman rm "${CONTAINER_ID}" || true

@@ -36,6 +36,10 @@ while [[ $# -gt 0 ]]; do
         -o) dest="$2"; shift 2 ;;
         -X) [[ "${2:-}" == "POST" ]] && is_post=1; shift 2 ;;
         -u) auth="$2"; shift 2 ;;
+        # Credentials now arrive via a curl config file (user = "user:pass")
+        # instead of -u; read them back so the upload check below still proves
+        # they were passed through.
+        -K|--config) auth="$(sed -n 's/^user = "\(.*\)"$/\1/p' "$2")"; shift 2 ;;
         --upload-file) upload_file="$2"; shift 2 ;;
         -H|-d) shift 2 ;;
         --retry) shift 2 ;;

@@ -81,7 +81,10 @@ def handle(client_sock, leaf_cert, leaf_key):
         if method != "CONNECT":
             client_sock.sendall(b"HTTP/1.1 501 Not Implemented\r\n\r\n")
             return
-        host, port = target.split(":")
+        # rsplit on the last colon so IPv6 authorities (e.g. [::1]:443) split
+        # into host+port instead of raising ValueError; strip the [] brackets.
+        host, port = target.rsplit(":", 1)
+        host = host.strip("[]")
         port = int(port)
         print(f"[mitm-proxy] CONNECT {host}:{port}", flush=True)
         client_sock.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")

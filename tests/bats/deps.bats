@@ -50,10 +50,10 @@ run_script() {
 @test "cmd_update exec runs in /build not /app (MR2 regression)" {
   run_script update --module DBI
   [ "$status" -eq 0 ]
-  grep -q "cd /build" "$BATS_TEST_TMPDIR/podman.log" \
-    || ( echo "FAIL: 'cd /build' not found in podman.log"; cat "$BATS_TEST_TMPDIR/podman.log"; false )
-  if grep -q "cd /app" "$BATS_TEST_TMPDIR/podman.log"; then
-    echo "REGRESSION (MR2): cmd_update exec used 'cd /app' instead of 'cd /build'"
+  grep -q -- "--workdir /build" "$BATS_TEST_TMPDIR/podman.log" \
+    || ( echo "FAIL: '--workdir /build' not found in podman.log"; cat "$BATS_TEST_TMPDIR/podman.log"; false )
+  if grep -q -- "--workdir /app" "$BATS_TEST_TMPDIR/podman.log"; then
+    echo "REGRESSION (MR2): cmd_update exec used '--workdir /app' instead of '--workdir /build'"
     false
   fi
 }
@@ -75,14 +75,14 @@ run_script() {
 
 @test "deps.sh workdir matches Containerfile.deps WORKDIR" {
   cf_workdir=$(awk '/^WORKDIR/{print $2; exit}' "$REAL_CONTAINERFILE_DEPS")
-  script_path=$(grep -oE "cd /[a-zA-Z0-9_-]+" "$REAL_SCRIPT" | head -1 | sed 's/cd //')
+  script_path=$(grep -oE -- "--workdir /[a-zA-Z0-9_-]+" "$REAL_SCRIPT" | head -1 | sed 's#--workdir ##')
 
   [ -n "$cf_workdir" ] \
     || ( echo "FAIL: Could not extract WORKDIR from Containerfile.deps"; false )
   [ -n "$script_path" ] \
-    || ( echo "FAIL: Could not extract 'cd /...' path from deps.sh"; false )
+    || ( echo "FAIL: Could not extract '--workdir /...' path from deps.sh"; false )
   [ "$cf_workdir" = "$script_path" ] \
-    || ( echo "DRIFT: Containerfile.deps WORKDIR='$cf_workdir' != deps.sh cd path='$script_path'"; false )
+    || ( echo "DRIFT: Containerfile.deps WORKDIR='$cf_workdir' != deps.sh --workdir path='$script_path'"; false )
 }
 
 # ── Argument parsing ──────────────────────────────────────────────────────────

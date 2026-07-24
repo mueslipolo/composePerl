@@ -272,7 +272,14 @@ cpm_version() {
   grep -qF -- "--upload-file $PROJECT_DIR/artifacts/perl-${pv}.tar.gz https://nexus.example.org/repository/raw-hosted/composeperl/perl-${pv}.tar.gz" "$log"
   grep -qF -- "--upload-file $PROJECT_DIR/artifacts/cpanm-${cv} https://nexus.example.org/repository/raw-hosted/composeperl/cpanm-${cv}" "$log"
   grep -qF -- "--upload-file $PROJECT_DIR/artifacts/cpm-${cmv} https://nexus.example.org/repository/raw-hosted/composeperl/cpm-${cmv}" "$log"
-  grep -qF -- "-u svc-mirror:secret" "$log"
+
+  # Credentials are routed through a curl config file, never as `-u` on the
+  # command line. The uploads only succeed (status 0, 5x --upload-file above)
+  # because the mock read a valid user:pass out of that --config file — so
+  # pass-through is proven — while the secret must NOT appear in the logged argv.
+  grep -qF -- "--config " "$log"
+  ! grep -qF -- "-u svc-mirror:secret" "$log"
+  ! grep -qF -- "secret" "$log"
 }
 
 @test "--mirror fails clearly when Nexus credentials are missing, before any upload" {

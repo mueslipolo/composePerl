@@ -25,9 +25,20 @@ if [[ ! -f "${BUILD_INFO}" ]]; then
 fi
 
 # PERL_VERSION and UBI_IMAGE come from the bundle's own stamp, not a value
-# copied in by hand.
-# shellcheck source=/dev/null
-source "${BUILD_INFO}"
+# copied in by hand. The stamp is data (KEY=VALUE), not code: parse the two
+# keys we need rather than `source`-ing it, so a tampered .build-info shipped
+# alongside a bundle can't execute arbitrary shell on the VM.
+read_stamp() {
+    # read_stamp <key> — echo the value of KEY=VALUE from BUILD_INFO, or empty
+    local key="$1" line
+    line=$(grep -m1 -E "^${key}=" "${BUILD_INFO}") || return 0
+    line="${line#"${key}="}"
+    line="${line%\"}"; line="${line#\"}"
+    line="${line%\'}"; line="${line#\'}"
+    printf '%s' "${line}"
+}
+PERL_VERSION="$(read_stamp PERL_VERSION)"
+UBI_IMAGE="$(read_stamp UBI_IMAGE)"
 
 if [[ -z "${PERL_VERSION:-}" ]]; then
     echo "ERROR: ${BUILD_INFO} did not set PERL_VERSION" >&2
@@ -36,7 +47,10 @@ fi
 
 export PATH="${PERLBREW_ROOT}/bin:${PATH}"
 
-if ! perlbrew list | grep -qF "perl-${PERL_VERSION}"; then
+# Match the installation name exactly (strip perlbrew's leading '*'/indent and
+# any trailing annotation, then compare whole-line): a bare `grep -F` substring
+# match would accept perl-5.28.11 when the bundle needs perl-5.28.1.
+if ! perlbrew list | sed -E 's/^[* ]*//; s/[[:space:]].*$//' | grep -qxF "perl-${PERL_VERSION}"; then
     echo "FAIL: perlbrew has no perl-${PERL_VERSION}; this bundle needs it" >&2
     exit 1
 fi
