@@ -28,7 +28,12 @@ RUN /opt/perl/bin/cpanm --notest Carton \
 
 WORKDIR /build
 
-COPY cpanfile cpanfile.snapshot ./
+# Which cpanfile(.snapshot) pair to resolve, relative to the build context.
+# Default "." = the repo-root single-component cpanfile (unchanged behaviour).
+# scripts/deps.sh passes "common" for the shared BOM, or an assembled
+# per-component context dir for a component's union+seed resolution.
+ARG CPANFILE_DIR=.
+COPY ${CPANFILE_DIR}/cpanfile ${CPANFILE_DIR}/cpanfile.snapshot ./
 
 # `carton install` rejects an empty snapshot file with "Could not parse snapshot
 # file: __EOF__". Empty snapshots are legitimate (e.g. the container-build test

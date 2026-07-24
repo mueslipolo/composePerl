@@ -78,7 +78,14 @@ stamp_build_env() {
     } > "${dest}"
 }
 
+# build_carton_runner [<cpanfile-dir>]
+# <cpanfile-dir> (default ".") is the dir, relative to the build context, whose
+# cpanfile+cpanfile.snapshot the carton-runner resolves — "." for the root
+# single-component set, "common" for the shared BOM, or an assembled per-
+# component context. Passed through to Containerfile.deps as CPANFILE_DIR.
 build_carton_runner() {
+    local cpanfile_dir="${1:-.}"
+
     local ubi_args=()
     [[ -n "${UBI_IMAGE:-}" ]] && ubi_args=(--build-arg "UBI_IMAGE=${UBI_IMAGE}")
 
@@ -96,9 +103,10 @@ build_carton_runner() {
         -f "${CONTAINERFILE}" \
         "${PROJECT_ROOT}"
 
-    echo "==> Building carton-runner from Containerfile.deps..."
+    echo "==> Building carton-runner from Containerfile.deps (cpanfile dir: ${cpanfile_dir})..."
     podman build \
         --build-arg "BASE_IMAGE_NAME=${IMAGE_NAME}" \
+        --build-arg "CPANFILE_DIR=${cpanfile_dir}" \
         -t "${IMAGE_NAME}:carton-runner" \
         -f "${CONTAINERFILE_DEPS}" \
         "${PROJECT_ROOT}"
@@ -182,6 +190,60 @@ cmd_bundle() {
     # Display bundle size
     BUNDLE_SIZE=$(du -h "${BUNDLE_PATH}" | cut -f1)
     echo "==> Bundle size: ${BUNDLE_SIZE}"
+    echo "==> Done"
+}
+
+# ============================================================================
+# bundle-common - Generate the shared "common" BOM bundle (container path)
+# ============================================================================
+# The multi-component equivalent of cmd_bundle: resolves common/cpanfile in the
+# carton-runner (CPANFILE_DIR=common) and extracts the bundle into
+# bundles/common/. See docs/multi-component.md.
+cmd_bundle_common() {
+    echo "==> Managing the shared common BOM bundle"
+    local common_dir="${PROJECT_ROOT}/common"
+    local common_snapshot="${common_dir}/cpanfile.snapshot"
+    local out_dir="${BUNDLES_DIR}/common"
+
+    if [[ ! -f "${common_snapshot}" ]]; then
+        echo "ERROR: ${common_snapshot} not found — the common set must be resolved/committed first"
+        exit 1
+    fi
+
+    mkdir -p "${out_dir}"
+    local hash bundle_name bundle_path info_name info_path
+    hash=$(sha256sum "${common_snapshot}" | cut -c1-12)
+    echo "==> Common snapshot hash: ${hash}"
+    bundle_name="bundle-${hash}.tar.gz"
+    bundle_path="${out_dir}/${bundle_name}"
+    info_name="bundle-${hash}.build-info"
+    info_path="${out_dir}/${info_name}"
+
+    if [[ -f "${bundle_path}" ]]; then
+        echo "==> Common bundle already exists: ${bundle_name}"
+        ln -sf "${bundle_name}" "${out_dir}/bundle-latest.tar.gz"
+        stamp_build_env "${info_path}"
+        ln -sf "${info_name}" "${out_dir}/bundle-latest.build-info"
+        echo "==> Done"
+        return 0
+    fi
+
+    build_carton_runner common
+
+    echo "==> Extracting common bundle from container..."
+    local cid
+    cid=$(podman create "${IMAGE_NAME}:carton-runner")
+    if ! podman cp "${cid}:/build/cpan-bundle.tar.gz" "${bundle_path}"; then
+        echo "ERROR: Failed to copy common bundle from container"
+        podman rm "${cid}" || true
+        exit 1
+    fi
+    podman rm "${cid}"
+
+    stamp_build_env "${info_path}"
+    ln -sf "${bundle_name}" "${out_dir}/bundle-latest.tar.gz"
+    ln -sf "${info_name}" "${out_dir}/bundle-latest.build-info"
+    echo "==> Common bundle created: ${out_dir}/${bundle_name}"
     echo "==> Done"
 }
 
@@ -304,6 +366,8 @@ Usage: $0 <command> [options]
 
 Commands:
   bundle                       Generate CPAN bundle from cpanfile.snapshot
+  bundle-common                Generate the shared common BOM bundle from
+                                common/cpanfile.snapshot (multi-component)
   update --all                 Update all dependencies to latest versions
   update --module NAME [NAME...]  Update one or more specific modules to their
                                 latest version, leaving everything else pinned
@@ -341,6 +405,9 @@ main() {
     case "${COMMAND}" in
         bundle)
             cmd_bundle "$@"
+            ;;
+        bundle-common)
+            cmd_bundle_common "$@"
             ;;
         update)
             cmd_update "$@"
