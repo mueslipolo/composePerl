@@ -121,9 +121,11 @@ Per component (`make bundle COMPONENT=<app>`), planned flow:
    by `scripts/generate-cpan-sbom.pl` and `tests/TestConfig.pm`.)
 4. **Delta bundle.** `component_snapshot − common_snapshot` = the dists only this
    component adds. Vendor only those into `bundles/<app>/`.
-5. **Install.** `<comp>-dev` is `FROM common-dev`, so `/opt/cpan-common` is
-   already on `PERL5LIB`; `cpm` installs just the delta into `/opt/cpan-<comp>`
-   and sees the shared deps as already satisfied.
+5. **Install (full closure, then prune).** `<comp>-dev` is `FROM common-dev`,
+   so `/opt/cpan-common` is on `PERL5LIB` — but see "Layered install" below:
+   `cpm -L` is a *contained* local::lib and will **not** treat those as
+   satisfied, so the component installs its full closure into `/opt/cpan-<comp>`
+   and then prunes the files `common` already provides, leaving only the delta.
 
 ### Worked example
 
@@ -182,6 +184,36 @@ Fix: bump it in common/cpanfile (affects all), or remove it from common/.
 Because the gate re-checks Carton's *output*, it's correct regardless of
 whether a given Carton version re-resolves or errors on that unsatisfiable
 seed — which is precisely why enforcement lives in the gate, not in Carton.
+(Verified empirically: given contradictory constraints, Carton **silently
+installs the higher version and exits 0** — it does not error — so the gate is
+the only enforcement.)
+
+### Layered install (full closure, then prune)
+
+The obvious install — "the component only installs its delta, because
+`common` is already on `PERL5LIB`" — **does not work with cpm**. `cpm -L` is a
+*contained* local::lib: it deliberately ignores the ambient `PERL5LIB`, so it
+will re-resolve and reinstall a dependency even when that exact module+version
+is already loadable from the common layer (verified: `use`-able common modules
+were still reinstalled). There is no cpm flag to make `-L` honour an external
+lib.
+
+So the component install is **install-full-then-prune**
+(`scripts/install-component-layered.sh`):
+
+1. `cpm install -L /opt/cpan-<comp>` the component's **full** closure from its
+   vendor mirror (this includes the shared dists);
+2. delete from `/opt/cpan-<comp>` every file that already exists at the same
+   path under `/opt/cpan-common`, leaving only the delta;
+3. drop the emptied directories.
+
+The prune is **safe precisely because of the gate**: a distribution shared
+with `common` is guaranteed to be pinned to the *same version*, so its files
+are byte-identical to common's — deleting the component's copy loses nothing,
+and the runtime resolves it from the shared common layer via
+`PERL5LIB=/opt/cpan-<comp>/... : /opt/cpan-common/... : /opt/perl/...`. This
+keeps the shared `common` layer physically single (COPYed once, deduped by the
+storage driver) while each component layer carries only its own delta.
 
 ## The split is a dial, not a switch
 
