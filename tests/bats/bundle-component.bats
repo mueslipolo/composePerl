@@ -43,15 +43,21 @@ setup() {
   ! grep -qE '^(Try-Tiny|Capture-Tiny) ' "$d/delta.txt"
 }
 
-@test "alpha: the vendored mirror is delta-only (no common tarballs shipped)" {
+@test "alpha: the vendored mirror carries the FULL closure, not just the delta" {
+  # cpm still resolves and fetches every requirement in the component's
+  # cpanfile regardless of what's pre-seeded into its install target (real
+  # cpm 0.997024, verified directly) — so the bundle must ship common's
+  # tarballs too, or install-component-layered.sh's `cpm install` fails with
+  # "FAIL fetch" for each one. Delta-only is enforced later, as a post-install
+  # file prune (tests/bats/multi-component-layered.bats), not by starving the
+  # mirror up front.
   "$SCRIPT" "$COMMON_DIR" "$FIXTURES/alpha" "$BDIR" >/dev/null
   d="${BATS_TEST_TMPDIR}/vextract"; mkdir -p "$d"
   tar xzf "$BDIR/alpha/bundle-latest.tar.gz" -C "$d"
   run bash -c "find '$d/vendor/cache' -name '*.tar.gz' | sed 's#.*/##' | sort"
   [[ "$output" == *"Test-Fatal-"* ]]
-  # common's distributions must NOT be shipped in the component bundle
-  [[ "$output" != *"Try-Tiny-"* ]]
-  [[ "$output" != *"Capture-Tiny-"* ]]
+  [[ "$output" == *"Try-Tiny-"* ]]
+  [[ "$output" == *"Capture-Tiny-"* ]]
 }
 
 @test "beta: empty delta still produces a valid bundle" {

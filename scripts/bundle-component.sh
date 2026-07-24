@@ -44,21 +44,20 @@ trap 'rm -rf "${workdir}"' EXIT
 echo "==> Resolving component '${name}' against the common BOM..."
 "${RESOLVE}" "${common_dir}" "${component_dir}/cpanfile" "${workdir}"
 
-# 2. Vendor the resolved closure, then prune the mirror to the DELTA only —
-#    the distributions unique to this component (delta.txt from the gate).
-#    Shared dists are dropped: the component install seeds them from the common
-#    layer (see scripts/install-component-layered.sh), so shipping them here
-#    would just bloat every component bundle with copies of common.
-echo "==> Vendoring (carton bundle) + pruning to the delta..."
+# 2. Vendor the FULL resolved closure (shared dists included) — cpm still
+#    resolves and fetches every entry in the component's cpanfile regardless
+#    of what's already seeded into its install target (verified against the
+#    real pinned cpm 0.997024: it does NOT skip fetch for pre-seeded modules,
+#    only the later install step short-circuits on an already-satisfied
+#    version). Pruning the mirror down to delta.txt's distributions here would
+#    leave the 02packages index referencing tarballs that no longer exist,
+#    which fails `cpm install` with "FAIL fetch" for every shared dependency.
+#    The delta-only runtime layer still happens — just later, as a post-install
+#    file prune in scripts/install-component-layered.sh (step 3), which is safe
+#    because the BOM gate already guarantees shared dists match common's exact
+#    version.
+echo "==> Vendoring (carton bundle) — full closure; pruned to delta-only at install time..."
 ( cd "${workdir}" && carton bundle >/dev/null )
-keep="$(mktemp)"
-trap 'rm -rf "${workdir}" "${keep}"' EXIT
-while read -r dist ver _; do
-    [[ -n "${dist}" ]] && echo "${dist}-${ver}.tar.gz" >> "${keep}"
-done < "${workdir}/delta.txt"
-while IFS= read -r -d '' tarball; do
-    grep -qxF "$(basename "${tarball}")" "${keep}" || rm -f "${tarball}"
-done < <(find "${workdir}/vendor/cache" -type f -name '*.tar.gz' -print0)
 
 # 3. Package bundles/<name>/bundle-<hash>.tar.gz (+ delta.txt) + build-info + symlink.
 mkdir -p "${out_dir}"

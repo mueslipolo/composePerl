@@ -56,13 +56,28 @@ if [[ ! -d "${workdir}/vendor/cache" ]]; then
     ( cd "${workdir}" && carton bundle >/dev/null )
 fi
 
-# 1. Seed the target with common so cpm treats the shared modules as installed.
+# A sibling cpanfile.snapshot makes cpm try to load it via Carton::Snapshot,
+# which isn't installed here (only the standalone cpm binary is baked into
+# common-dev) — the same invariant the main Containerfile's `dev` stage and
+# Containerfile.deps already enforce ("rm cpanfile.snapshot" before every
+# cpm install in this repo). Without this, install fails outright with
+# "To load cpanfile.snapshot, you need to install Carton::Snapshot."
+rm -f "${workdir}/cpanfile.snapshot"
+
+# 1. Seed the target with common so cpm treats the shared modules as already
+#    installed and skips them — verified against the real pinned cpm 0.997024:
+#    it still resolves and FETCHES every requirement in the cpanfile regardless
+#    of what's pre-seeded in -L, but the later install step correctly
+#    short-circuits on anything already satisfied (only the genuine delta gets
+#    installed). Since fetch always happens, the vendor/cache the bundle
+#    carries must hold the FULL closure, not just the delta — see
+#    bundle-component.sh.
 echo "==> Seeding ${out_lib} from ${common_lib}..."
 mkdir -p "${out_lib}"
 cp -a "${common_lib}/." "${out_lib}/"
 
-# 2. Install the component's delta into the seeded lib. cpm installs only what
-#    the seed doesn't already satisfy — i.e. the delta.
+# 2. Install the component's full closure into the seeded lib (common's
+#    shared distributions + this component's own delta).
 echo "==> Installing component delta into ${out_lib} (cpm, offline)..."
 "${CPM}" install -L "${out_lib}" \
     --resolver "02packages,file://${workdir}/vendor/cache" \
