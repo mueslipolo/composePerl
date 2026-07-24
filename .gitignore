@@ -5,6 +5,7 @@ artifacts/
 # Local Carton files (if running locally)
 .carton/
 local/
+vendor/
 
 # User-provided corporate CA certs (never committed)
 certs/*
