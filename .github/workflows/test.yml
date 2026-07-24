@@ -326,8 +326,17 @@ jobs:
             -f components/example/Containerfile components/example
 
       - name: Run the example component (layered common + delta must load)
+        # The CMD is now a long-running Mojolicious daemon (compose/README.md),
+        # not a one-shot script — run it detached, poll until it answers, then
+        # tear it down; a foreground `podman run --rm` would hang forever.
         run: |
-          out=$(podman run --rm example-component:test)
+          podman run -d --name example-run -p 3001:3000 example-component:test
+          trap 'podman rm -f example-run' EXIT
+          out=""
+          for i in $(seq 1 30); do
+            if out=$(curl -sf http://localhost:3001/); then break; fi
+            sleep 1
+          done
           echo "$out"
           echo "$out" | grep -q "Capture::Tiny (common) + Test::Fatal (delta) both loaded"
 
@@ -364,8 +373,16 @@ jobs:
             -f components/billing/Containerfile components/billing
 
       - name: Run the billing component (layered common + delta must load)
+        # Same reasoning as the example component's run step above — long-
+        # running daemon, run detached + polled, not foreground.
         run: |
-          out=$(podman run --rm billing-component:test)
+          podman run -d --name billing-run -p 3002:3000 billing-component:test
+          trap 'podman rm -f billing-run' EXIT
+          out=""
+          for i in $(seq 1 30); do
+            if out=$(curl -sf http://localhost:3002/); then break; fi
+            sleep 1
+          done
           echo "$out"
           echo "$out" | grep -q "Try::Tiny (common) + Path::Tiny (delta) both loaded"
 
