@@ -215,6 +215,31 @@ and the runtime resolves it from the shared common layer via
 keeps the shared `common` layer physically single (COPYed once, deduped by the
 storage driver) while each component layer carries only its own delta.
 
+#### cpm satisfaction behaviour (measured, not assumed)
+
+Two facts about cpm decide the shape above; both were verified against real
+CPAN (cpm v1.1.4):
+
+- **cpm ignores the ambient `PERL5LIB`.** A module loadable via `PERL5LIB` is
+  still re-resolved/reinstalled by `cpm -L`; a delta-only mirror makes cpm
+  *fail* trying to fetch the (PERL5LIB-provided) shared dependency.
+- **cpm honours the `-L` target lib.** A module already present *in the target
+  lib itself* is treated as satisfied and skipped.
+
+That second fact enables an alternative that ships **delta-only bundles**
+instead of full-closure ones:
+
+| Strategy | Bundle contents | Build step | Trade-off |
+|---|---|---|---|
+| **full-then-prune** (shipped: `install-component-layered.sh`) | full closure (incl. shared dists) | install full → prune common's files | bigger bundles; no seed copy |
+| **seed-then-delta** | delta only | copy common into the target → `cpm install` delta → prune common back out | small bundles; pays a copy of the common lib at build |
+
+Both yield an identical delta-only component layer. `seed-then-delta` is the
+better fit once `common` is large (small per-component bundles), at the cost of
+seeding the target from the common layer before installing. The wiring can
+choose per environment; the gate's same-version guarantee is what makes the
+final prune safe in either case.
+
 ## The split is a dial, not a switch
 
 The migration does not require splitting anything up front:
