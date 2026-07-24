@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Mock curl for fetch-artifacts.bats. The real script makes three distinct
-# kinds of curl call; this mock handles all three:
-#   1. Downloads:     curl ... -o <dest> <url>            -> writes a payload to <dest>
-#   2. MetaCPAN POST:  curl ... -X POST <metacpan-url> ... -> JSON to stdout
-#   3. CHECKSUMS GET:  curl ... <cpan CHECKSUMS url>       -> Perl-struct text to stdout
+# Mock curl for fetch-artifacts.bats. The real script makes four distinct
+# kinds of curl call; this mock handles all four:
+#   1. Downloads:      curl ... -o <dest> <url>                  -> writes a payload to <dest>
+#   2. MetaCPAN POST:  curl ... -X POST <metacpan-url> ...        -> JSON to stdout
+#   3. CHECKSUMS GET:  curl ... <cpan CHECKSUMS url>              -> Perl-struct text to stdout
+#   4. Nexus upload:   curl ... -u user:pass --upload-file <f> <url> -> logs and succeeds
 #
 # Logs every invocation to $BATS_TEST_TMPDIR/curl.log so tests can assert on
 # how many network calls actually happened (idempotent runs should make none).
@@ -27,11 +28,15 @@ echo "curl $* [http_proxy=${http_proxy:-} https_proxy=${https_proxy:-} no_proxy=
 dest=""
 url=""
 is_post=0
+upload_file=""
+auth=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -o) dest="$2"; shift 2 ;;
         -X) [[ "${2:-}" == "POST" ]] && is_post=1; shift 2 ;;
+        -u) auth="$2"; shift 2 ;;
+        --upload-file) upload_file="$2"; shift 2 ;;
         -H|-d) shift 2 ;;
         --retry) shift 2 ;;
         -fsSL|-fSL|-fsS|-fL|-f|-s|-S|-L) shift ;;
@@ -40,6 +45,21 @@ while [[ $# -gt 0 ]]; do
         *) shift ;;
     esac
 done
+
+if [[ -n "$upload_file" ]]; then
+    # Case 4: Nexus upload via --upload-file. Requires auth (-u) to be present,
+    # same as a real Nexus hosted-repo write would; fails clearly otherwise so
+    # a test can assert credentials were actually passed through.
+    if [[ -z "$auth" ]]; then
+        echo "curl: mock upload refused: no -u credentials given" >&2
+        exit 22
+    fi
+    if [[ ! -f "$upload_file" ]]; then
+        echo "curl: mock upload failed: local file not found: $upload_file" >&2
+        exit 26
+    fi
+    exit 0
+fi
 
 if [[ -n "$dest" ]]; then
     if [[ -n "${FETCH_MOCK_DOWNLOAD_EXIT_CODE:-}" ]]; then

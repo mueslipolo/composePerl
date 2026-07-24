@@ -21,10 +21,15 @@ setup() {
   touch "$BATS_TEST_TMPDIR/curl.log"
   unset FETCH_MOCK_BAD_PAYLOAD FETCH_MOCK_METACPAN_SHA256 FETCH_MOCK_CHECKSUMS_BODY
   unset http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY
+  unset NEXUS_URL NEXUS_REPOSITORY NEXUS_USER NEXUS_PASSWORD
 }
 
 run_script() {
   run "$PROJECT_DIR/scripts/fetch-artifacts.sh"
+}
+
+run_script_mirror() {
+  run "$PROJECT_DIR/scripts/fetch-artifacts.sh" --mirror
 }
 
 perl_version() {
@@ -215,4 +220,79 @@ cpm_version() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"ERROR: sha256 mismatch for cpanm"* ]]
   [[ "$output" != *"Network/TLS error"* ]]
+}
+
+# ── Nexus fetch redirect ──────────────────────────────────────────────────────
+
+@test "fetches from Nexus instead of the public internet when NEXUS_URL is set" {
+  export NEXUS_URL="https://nexus.example.org"
+  run_script
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"NEXUS_URL set: fetching artifacts from Nexus"* ]]
+
+  log="$BATS_TEST_TMPDIR/curl.log"
+  pv="$(perl_version)"
+  cv="$(cpanm_version)"
+
+  grep -qF "https://nexus.example.org/repository/raw-hosted/composeperl/perl-${pv}.tar.gz" "$log"
+  grep -qF "https://nexus.example.org/repository/raw-hosted/composeperl/cpanm-${cv}" "$log"
+  ! grep -qF "www.cpan.org" "$log"
+  ! grep -qF "raw.githubusercontent.com" "$log"
+  ! grep -qF "download.oracle.com" "$log"
+}
+
+@test "NEXUS_REPOSITORY overrides the default 'raw-hosted' repo name" {
+  export NEXUS_URL="https://nexus.example.org"
+  export NEXUS_REPOSITORY="perl-mirror"
+  run_script
+  [ "$status" -eq 0 ]
+  grep -qF "https://nexus.example.org/repository/perl-mirror/composeperl/" "$BATS_TEST_TMPDIR/curl.log"
+}
+
+# ── --mirror (fetch from the internet, upload into Nexus) ────────────────────
+
+@test "--mirror uses public URLs even when NEXUS_URL is set, and uploads all 5 artifacts" {
+  export NEXUS_URL="https://nexus.example.org"
+  export NEXUS_USER="svc-mirror"
+  export NEXUS_PASSWORD="secret"
+  run_script_mirror
+  [ "$status" -eq 0 ]
+
+  log="$BATS_TEST_TMPDIR/curl.log"
+  # Downloads still hit the real public sources...
+  grep -qF "www.cpan.org" "$log"
+  grep -qF "raw.githubusercontent.com" "$log"
+  grep -qF "download.oracle.com" "$log"
+
+  # ...and every artifact is then uploaded to Nexus.
+  pv="$(perl_version)"
+  cv="$(cpanm_version)"
+  cmv="$(cpm_version)"
+  [ "$(grep -c -- '--upload-file' "$log")" -eq 5 ]
+  grep -qF -- "--upload-file $PROJECT_DIR/artifacts/perl-${pv}.tar.gz https://nexus.example.org/repository/raw-hosted/composeperl/perl-${pv}.tar.gz" "$log"
+  grep -qF -- "--upload-file $PROJECT_DIR/artifacts/cpanm-${cv} https://nexus.example.org/repository/raw-hosted/composeperl/cpanm-${cv}" "$log"
+  grep -qF -- "--upload-file $PROJECT_DIR/artifacts/cpm-${cmv} https://nexus.example.org/repository/raw-hosted/composeperl/cpm-${cmv}" "$log"
+  grep -qF -- "-u svc-mirror:secret" "$log"
+}
+
+@test "--mirror fails clearly when Nexus credentials are missing, before any upload" {
+  export NEXUS_URL="https://nexus.example.org"
+  run_script_mirror
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR"* ]]
+  [[ "$output" == *"NEXUS_URL, NEXUS_USER, and NEXUS_PASSWORD"* ]]
+  [ ! -s "$BATS_TEST_TMPDIR/curl.log" ]
+}
+
+@test "--mirror fails clearly when NEXUS_URL is unset" {
+  run_script_mirror
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR"* ]]
+  [[ "$output" == *"NEXUS_URL, NEXUS_USER, and NEXUS_PASSWORD"* ]]
+}
+
+@test "rejects an unrecognized argument" {
+  run "$PROJECT_DIR/scripts/fetch-artifacts.sh" --bogus
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"Usage:"* ]]
 }

@@ -93,6 +93,41 @@ bypass the proxy:
 export no_proxy=localhost,127.0.0.1,.internal.corp.example
 ```
 
+## Fetching artifacts from an internal Nexus instead of the public internet
+
+`scripts/fetch-artifacts.sh` normally downloads the Perl source tarball,
+`cpanm`, `cpm`, and the Oracle Instant Client zips directly from their public
+upstreams (`cpan.org`, GitHub raw, `oracle.com`). In an environment without
+direct internet egress, it can instead read them from an internal Nexus
+raw-hosted repository:
+
+```bash
+export NEXUS_URL=https://nexus.example.org
+make fetch-artifacts   # now reads from Nexus instead of the public internet
+```
+
+Someone still has to *populate* that Nexus repo in the first place — that's
+`--mirror` (`make mirror-artifacts`): it always fetches from the real public
+sources regardless of `NEXUS_URL` (mirroring is the one operation that must
+reach the internet), verifies checksums exactly like a normal fetch, then
+uploads each artifact into Nexus:
+
+```bash
+export NEXUS_URL=https://nexus.example.org
+export NEXUS_USER=svc-mirror
+export NEXUS_PASSWORD=...
+make mirror-artifacts
+```
+
+**Assumption, to correct once real org access exists**: a single Nexus 3
+raw-hosted repository, default name `raw-hosted` (override with
+`NEXUS_REPOSITORY`), artifacts under a `composeperl/` subpath keyed by the
+same filenames already used in `artifacts/`/`artifacts.sha256`. Fetching
+(`GET`) is assumed anonymous-readable within the corp network — only
+`--mirror`'s upload needs `NEXUS_USER`/`NEXUS_PASSWORD`. Nexus itself is
+expected to be reachable per your `no_proxy` configuration above (an
+environment concern, not something the script special-cases).
+
 ## Troubleshooting
 
 - **`make fetch-artifacts` hangs or times out**: confirm `https_proxy` is set

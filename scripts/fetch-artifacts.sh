@@ -18,6 +18,24 @@
 
 set -Eeuo pipefail
 
+# --- Mode ----------------------------------------------------------------------
+# --mirror: fetch from the real public sources (always, ignoring NEXUS_URL for
+# the source side) and upload each verified artifact into Nexus afterward —
+# the operation that POPULATES the Nexus mirror. Default (no flag): a plain
+# fetch, redirected to Nexus instead of the public internet when NEXUS_URL is
+# set. See docs/proxy.md.
+MIRROR_MODE=0
+for arg in "$@"; do
+    case "${arg}" in
+        --mirror) MIRROR_MODE=1 ;;
+        *)
+            echo "ERROR: unrecognized argument: ${arg}" >&2
+            echo "Usage: $0 [--mirror]" >&2
+            exit 2
+            ;;
+    esac
+done
+
 # --- Proxy ---------------------------------------------------------------------
 # curl (used for every download below) reads lowercase http_proxy/https_proxy/
 # no_proxy. It deliberately does NOT read uppercase HTTP_PROXY for plain http://
@@ -85,13 +103,53 @@ CPM_VERSION="0.997024"
 ORACLE_IC_VERSION="23.8.0.25.04"
 ORACLE_IC_SUBDIR="2380000"
 
+# --- Nexus (optional artifact mirror) ------------------------------------------
+# NEXUS_URL set (without --mirror): fetch artifacts from Nexus instead of the
+# public internet — for environments without direct internet egress. Unset:
+# unchanged, fetch from the public internet (default; zero-config for
+# local/GitHub Actions usage). --mirror: see "Mode" above.
+#
+# ASSUMPTION (correct once real org access exists): a single Nexus 3
+# raw-hosted repository, default name "raw-hosted", artifacts under a
+# composeperl/ subpath keyed by the same filenames already used in
+# artifacts/ and artifacts.sha256. Nexus's raw-format upload is a plain
+# authenticated PUT to <nexus>/repository/<repo>/<path>, i.e. exactly what
+# `curl --upload-file` sends.
+NEXUS_URL="${NEXUS_URL:-}"
+NEXUS_REPOSITORY="${NEXUS_REPOSITORY:-raw-hosted}"
+NEXUS_USER="${NEXUS_USER:-}"
+NEXUS_PASSWORD="${NEXUS_PASSWORD:-}"
+NEXUS_BASE_URL="${NEXUS_URL:+${NEXUS_URL}/repository/${NEXUS_REPOSITORY}/composeperl}"
+
+if [ "${MIRROR_MODE}" -eq 1 ]; then
+    if [ -z "${NEXUS_URL}" ] || [ -z "${NEXUS_USER}" ] || [ -z "${NEXUS_PASSWORD}" ]; then
+        echo "ERROR: --mirror requires NEXUS_URL, NEXUS_USER, and NEXUS_PASSWORD to all be set." >&2
+        exit 1
+    fi
+fi
+
 # --- URLs --------------------------------------------------------------------
-PERL_URL="https://www.cpan.org/src/5.0/perl-${PERL_VERSION}.tar.gz"
-CPANM_URL="https://raw.githubusercontent.com/miyagawa/cpanminus/${CPANM_VERSION}/cpanm"
-CPM_URL="https://raw.githubusercontent.com/skaji/cpm/${CPM_VERSION}/cpm"
-ORACLE_BASE_URL="https://download.oracle.com/otn_software/linux/instantclient/${ORACLE_IC_SUBDIR}"
+# Public (real) sources — always used by --mirror; used by default too unless
+# NEXUS_URL redirects them below.
+PUBLIC_PERL_URL="https://www.cpan.org/src/5.0/perl-${PERL_VERSION}.tar.gz"
+PUBLIC_CPANM_URL="https://raw.githubusercontent.com/miyagawa/cpanminus/${CPANM_VERSION}/cpanm"
+PUBLIC_CPM_URL="https://raw.githubusercontent.com/skaji/cpm/${CPM_VERSION}/cpm"
+PUBLIC_ORACLE_BASE_URL="https://download.oracle.com/otn_software/linux/instantclient/${ORACLE_IC_SUBDIR}"
 ORACLE_BASICLITE_ZIP="instantclient-basiclite-linux.x64-${ORACLE_IC_VERSION}.zip"
 ORACLE_SDK_ZIP="instantclient-sdk-linux.x64-${ORACLE_IC_VERSION}.zip"
+
+if [ "${MIRROR_MODE}" -eq 1 ] || [ -z "${NEXUS_URL}" ]; then
+    PERL_URL="${PUBLIC_PERL_URL}"
+    CPANM_URL="${PUBLIC_CPANM_URL}"
+    CPM_URL="${PUBLIC_CPM_URL}"
+    ORACLE_BASE_URL="${PUBLIC_ORACLE_BASE_URL}"
+else
+    echo "==> NEXUS_URL set: fetching artifacts from Nexus (${NEXUS_BASE_URL}/) instead of the public internet"
+    PERL_URL="${NEXUS_BASE_URL}/perl-${PERL_VERSION}.tar.gz"
+    CPANM_URL="${NEXUS_BASE_URL}/cpanm-${CPANM_VERSION}"
+    CPM_URL="${NEXUS_BASE_URL}/cpm-${CPM_VERSION}"
+    ORACLE_BASE_URL="${NEXUS_BASE_URL}"
+fi
 
 # --- Helpers -------------------------------------------------------------------
 
@@ -278,3 +336,18 @@ verify_or_learn "${ARTIFACTS_DIR}/${ORACLE_SDK_ZIP}"
 echo ""
 echo "==> Done. Artifacts in ${ARTIFACTS_DIR}:"
 ls -la "${ARTIFACTS_DIR}"
+
+if [ "${MIRROR_MODE}" -eq 1 ]; then
+    echo ""
+    echo "==> Mirroring artifacts into Nexus (${NEXUS_BASE_URL}/)..."
+    for f in "${PERL_TARBALL}" \
+        "${ARTIFACTS_DIR}/cpanm-${CPANM_VERSION}" \
+        "${ARTIFACTS_DIR}/cpm-${CPM_VERSION}" \
+        "${ARTIFACTS_DIR}/${ORACLE_BASICLITE_ZIP}" \
+        "${ARTIFACTS_DIR}/${ORACLE_SDK_ZIP}"; do
+        name="$(basename "${f}")"
+        echo "    uploading ${name}..."
+        curl -fsSL -u "${NEXUS_USER}:${NEXUS_PASSWORD}" --upload-file "${f}" "${NEXUS_BASE_URL}/${name}"
+    done
+    echo "==> Mirror upload complete."
+fi

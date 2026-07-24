@@ -107,6 +107,9 @@ test-full: ## Run full CPAN test suites in dev image (use MODULE=name)
 fetch-artifacts: ## Download perl source, cpanm, cpm, and Oracle Instant Client into artifacts/
 	@./scripts/fetch-artifacts.sh
 
+mirror-artifacts: ## Fetch real artifacts from the internet and upload them into Nexus (needs NEXUS_URL/NEXUS_USER/NEXUS_PASSWORD)
+	@./scripts/fetch-artifacts.sh --mirror
+
 test-container-build: ## Full end-to-end build + lifecycle test with curated ~11-module cpanfile
 	@set -e; \
 	WORKDIR="$$(bash tests/container-build/setup.sh)"; \
