@@ -27,11 +27,11 @@ split the monolithic `cpanfile` into per-component dependency sets — no big-ba
 
 Three layers, from most-shared to least:
 
-| Layer | What it is | Built | Shared by |
-|---|---|---|---|
-| **Platform** | `perl-src → base → dev-tools` — one compiled Perl, system libs, XS toolchain, Oracle | once | everything |
-| **Common** | the shared CPAN set + the common Perl library's code + (env-injected) config | once per platform version | all components |
-| **Component delta** | one component's *additional* CPAN modules + its app code | per component | nobody |
+| Layer               | What it is                                                                           | Built                     | Shared by      |
+| ------------------- | ------------------------------------------------------------------------------------ | ------------------------- | -------------- |
+| **Platform**        | `perl-src → base → dev-tools` — one compiled Perl, system libs, XS toolchain, Oracle | once                      | everything     |
+| **Common**          | the shared CPAN set + the common Perl library's code + (env-injected) config         | once per platform version | all components |
+| **Component delta** | one component's *additional* CPAN modules + its app code                             | per component             | nobody         |
 
 Decisions that fix this shape (from the review):
 
@@ -75,7 +75,7 @@ components/
   <app>/  cpanfile  cpanfile.snapshot  app/    # delta deps + app code
 bundles/
   common/   bundle-<hash>.tar.gz + .build-info
-  <app>/    bundle-<hash>.tar.gz + .build-info  # vendors only the DELTA vs common
+  <app>/    bundle-<hash>.tar.gz + .build-info  # vendors the FULL closure; only the installed runtime layer ends up delta-only
 ```
 
 ## Dependency model: common is a BOM; components add, never override
@@ -90,11 +90,11 @@ policy is:
 
 This is the Maven/Gradle "managed dependencies" model. Resolving a component:
 
-| Component needs a dist that… | Outcome |
-|---|---|
-| common pins, at a satisfying version | ✅ satisfied by common, **not** re-vendored |
+| Component needs a dist that…                | Outcome                                               |
+| ------------------------------------------- | ----------------------------------------------------- |
+| common pins, at a satisfying version        | ✅ satisfied by common, **not** re-vendored           |
 | common pins, at an **incompatible** version | ❌ **hard error** — the conflict gate fails the build |
-| common doesn't pin | ✅ goes in the component's **delta** bundle |
+| common doesn't pin                          | ✅ goes in the component's **delta** bundle           |
 
 A conflict is never auto-resolved. It surfaces with two remediations:
 **bump it in `common/`** (accept it affects everyone) or **de-share it** (remove
@@ -110,22 +110,25 @@ Per component (`make bundle COMPONENT=<app>`), planned flow:
 
 1. **Merge requirements.** Workdir `cpanfile` = `common/cpanfile` + the
    component's `cpanfile`, **seeded** with `common/cpanfile.snapshot`.
-2. **`carton install`.** Keeps common's pins for everything they satisfy;
+1. **`carton install`.** Keeps common's pins for everything they satisfy;
    resolves the component's genuinely-new distributions on top.
-3. **Conflict gate** *(the piece we build — a small snapshot-diff script).*
+1. **Conflict gate** *(the piece we build — a small snapshot-diff script).*
    Compare the resulting snapshot against `common/cpanfile.snapshot` on the
    **shared distribution names**. If any shared dist's version differs → Carton
    moved a common pin → **fail** with the exact list. Because the gate re-checks
    the output, it's correct regardless of whether Carton would upgrade or error.
    (The `cpanfile.snapshot` `DISTRIBUTIONS`/`pathname` format is already parsed
    by `scripts/generate-cpan-sbom.pl` and `tests/TestConfig.pm`.)
-4. **Delta bundle.** `component_snapshot − common_snapshot` = the dists only this
-   component adds. Vendor only those into `bundles/<app>/`.
-5. **Install (full closure, then prune).** `<comp>-dev` is `FROM common-dev`,
-   so `/opt/cpan-common` is on `PERL5LIB` — but see "Layered install" below:
-   `cpm -L` is a *contained* local::lib and will **not** treat those as
-   satisfied, so the component installs its full closure into `/opt/cpan-<comp>`
-   and then prunes the files `common` already provides, leaving only the delta.
+1. **Bundle.** `component_snapshot − common_snapshot` = `delta.txt`, the dists
+   only this component adds. The vendor mirror itself carries the **full**
+   resolved closure (common's shared dists too), not just the delta — see
+   "Layered install" below for why.
+1. **Install (seed, then delta — see "Layered install" below for the full
+   mechanism and why the naive approach doesn't work).** `<comp>-dev` is
+   `FROM common-dev`; the component's install target is seeded from
+   `/opt/cpan-common` so cpm skips (re-)installing anything already there,
+   then the files that seed provided are pruned back out, leaving
+   `/opt/cpan-<comp>` with just the delta.
 
 ### Worked example
 
@@ -167,8 +170,11 @@ DBD-SQLite 1.74
 DBI 1.643
 ```
 
-Exit 0, and those two lines are exactly the **delta** `x`'s bundle vendors —
-`Try-Tiny`, `JSON-XS`, `Moo` come from the shared `common` layer.
+Exit 0, and those two lines are exactly `x`'s **delta** — `delta.txt` records
+them, and they're the only distributions that end up in `x`'s *installed*
+runtime layer once seed-then-delta prunes the rest back out. The bundle's
+vendor mirror itself still carries all five (`Try-Tiny`, `JSON-XS`, `Moo` too)
+— see "Layered install" for why.
 
 **The conflict case:** had `components/x/cpanfile` said
 `requires 'JSON::XS', '>= 4.0'`, Carton couldn't satisfy that from the seeded
@@ -191,27 +197,32 @@ the only enforcement.)
 ### Layered install (seed, then delta)
 
 The obvious install — "the component only installs its delta, because
-`common` is already on `PERL5LIB`" — **does not work with cpm**, and the fix
-comes from *how* cpm decides what's already satisfied. Both facts below were
-verified against real CPAN (cpm v1.1.4):
+`common` is already on `PERL5LIB`" — **does not work with cpm**. The facts
+below were verified against the real pinned `cpm` binary (0.997024, the one
+actually baked into images — not a newer `cpm` on PATH, which masks this):
 
 - **cpm ignores the ambient `PERL5LIB`.** `cpm -L` is a *contained* local::lib;
-  a module loadable via `PERL5LIB` is still re-resolved/reinstalled, and a
-  delta-only mirror makes cpm *fail* trying to fetch the shared dependency.
-- **cpm honours the `-L` target lib itself.** A module already present *in the
-  target lib* is treated as satisfied and skipped.
+  a module loadable via `PERL5LIB` is still re-resolved/reinstalled.
+- **cpm still resolves and *fetches* every requirement in the cpanfile
+  regardless of what's pre-seeded into `-L`.** Seeding does **not** skip
+  fetch — a delta-only vendor mirror makes cpm fail with `FAIL fetch` for
+  every shared dependency, because it tries to fetch them anyway and their
+  tarballs aren't there.
+- **cpm honours the `-L` target lib at the *install* step.** A module already
+  present *in the target lib* is skipped at install/build time — this is
+  where "already satisfied" actually matters, not at fetch/resolve time.
 
-The second fact is the lever. `scripts/install-component-layered.sh` does
-**seed-then-delta**:
+The install is still **seed-then-delta** (`scripts/install-component-layered.sh`):
 
-1. **seed** `/opt/cpan-<comp>` with a copy of `/opt/cpan-common`, so cpm sees
-   the shared modules as installed;
-2. `cpm install -L /opt/cpan-<comp>` the component from its **delta-only**
-   vendor mirror — cpm installs only what the seed doesn't already satisfy (no
-   re-resolving, no recompiling common's XS);
-3. **prune** every file `/opt/cpan-common` provides (the seed + anything shared),
+1. **seed** `/opt/cpan-<comp>` with a copy of `/opt/cpan-common`, so cpm skips
+   *installing* the shared modules (no recompiling common's XS);
+1. `cpm install -L /opt/cpan-<comp>` the component from its vendor mirror —
+   which must carry the **full resolved closure** (common's shared
+   distributions + the component's own delta), not just the delta, since
+   fetch happens for everything regardless of the seed;
+1. **prune** every file `/opt/cpan-common` provides (the seed + anything shared),
    leaving `/opt/cpan-<comp>` with just the delta;
-4. drop the emptied directories.
+1. drop the emptied directories.
 
 The prune is **safe precisely because of the gate**: a distribution shared with
 `common` is pinned to the *same version*, so the seeded files are byte-identical
@@ -219,16 +230,17 @@ to common's — deleting them loses nothing, and the runtime resolves them from
 the shared layer via
 `PERL5LIB=/opt/cpan-<comp>/... : /opt/cpan-common/... : /opt/perl/...`. This
 keeps the shared `common` layer physically single (COPYed once, deduped by the
-storage driver) while each component layer — and each component **bundle** —
-carries only its own delta.
+storage driver) while each component's **runtime layer** carries only its own
+delta — the bundle itself (the vendor mirror) is the full closure; only the
+*installed, pruned* result is delta-only.
 
-Why seed-then-delta over the earlier "install the full closure, then prune"
-idea: it ships **small, delta-only bundles** (components never re-vendor common)
-*and* it never recompiles common's XS per component (the seed satisfies it). The
-only cost is copying the common lib into the target before install, which is far
-cheaper than recompiling. `scripts/bundle-component.sh` produces the delta-only
-bundle; `install-component-layered.sh` consumes it (and is baked into the
-`common-dev` image so component builds can call it directly).
+The lever is still seeding: it's what lets install skip recompiling common's
+XS per component. What it does **not** do is let the bundle skip vendoring
+common's distributions — that earlier assumption shipped delta-only bundles
+that broke `cpm install` outright. `scripts/bundle-component.sh` produces the
+full-closure bundle; `install-component-layered.sh` consumes it (baked into
+the `common-dev` image so component builds can call it directly) and does the
+delta-only pruning after install, not before.
 
 ## The split is a dial, not a switch
 
@@ -252,11 +264,11 @@ The bundle is delivery-neutral — `vendor/cache` (source distributions),
 containerize **app-by-app** while the rest of the fleet stays on the VM, all
 consuming the **same `common` bundle**:
 
-| | Container | VM / perlbrew |
-|---|---|---|
-| common | image layer `/opt/cpan-common` | perlbrew lib `perl-<ver>@common` (installed once per host) |
-| component | image layer `/opt/cpan-<comp>` | stacked lib `@common,@<comp>` |
-| resolution | `PERL5LIB` order | perlbrew lib **stacking** (native) |
+|            | Container                      | VM / perlbrew                                              |
+| ---------- | ------------------------------ | ---------------------------------------------------------- |
+| common     | image layer `/opt/cpan-common` | perlbrew lib `perl-<ver>@common` (installed once per host) |
+| component  | image layer `/opt/cpan-<comp>` | stacked lib `@common,@<comp>`                              |
+| resolution | `PERL5LIB` order               | perlbrew lib **stacking** (native)                         |
 
 So "manage the global CPAN modules on the servers with the bundle system" and
 "go container-first" are the **same** source of truth used two ways — not two
@@ -279,11 +291,11 @@ one, because XS is ABI-bound to Perl and everything shares it. Planned as one
 command, resolved common-first and fanned out, gate-protected:
 
 1. Stage the new `perl-<ver>.tar.gz`; set the version.
-2. **Re-resolve `common` first** → new BOM (its shared versions may move).
-3. **For each component: re-resolve against the new common, run the conflict
+1. **Re-resolve `common` first** → new BOM (its shared versions may move).
+1. **For each component: re-resolve against the new common, run the conflict
    gate.** A component that no longer fits the new baseline **fails here**, not
    in production.
-4. Rebuild images + run full XS test suites; every bundle hash changes → new
+1. Rebuild images + run full XS test suites; every bundle hash changes → new
    tags / perlbrew libs; old ones retained for rollback.
 
 The same gate that guards a normal component change guards the platform bump.
@@ -336,7 +348,20 @@ the shared platform keeps upgrades **atomic** rather than a cross-repo rollout.
 These are the up-front investments the multi-repo, container-first target
 requires — tracked from the design review's supply-chain findings:
 
-- **A registry** as the cross-repo contract (GHCR / Nexus / Harbor).
+- **A registry** as the cross-repo contract (GHCR / Nexus / Harbor). The
+  *mechanism* is validated: `make publish-platform REGISTRY=host/path`
+  tags+pushes `common-dev`/`common-runtime`, and a component builds
+  unmodified against it (`--build-arg COMMON_IMAGE=host/path`) — verified
+  locally with a throwaway `registry:2` (`podman run -d -p 5000:5000 registry:2`; plain-HTTP localhost needs `PODMAN_PUSH_FLAGS=--tls-verify=false`
+  on push and `--tls-verify=false` on the component's `podman build`). What's
+  still open: which real registry, and — the bigger gap — **digest-pinning**.
+  Today `COMMON_DEV_TAG`/`COMMON_RUNTIME_TAG` are plain tags; pinning by
+  digest needs the Containerfile's `FROM ${COMMON_IMAGE}:${COMMON_DEV_TAG}`
+  restructured into full-reference ARGs (e.g. `COMMON_DEV_REF`), since a tag
+  reference (`name:tag`) and a digest reference (`name@sha256:...`) use
+  different `FROM` syntax — not done yet, deliberately deferred past this
+  validation pass.
+- **Bundle-as-OCI-artifact + image signing** (cosign) so trust crosses the repo
 - **Bundle-as-OCI-artifact + image signing** (cosign) so trust crosses the repo
   boundary — this is review finding **D4**, promoted from "future" to
   "prerequisite" by the multi-repo choice.
@@ -350,13 +375,13 @@ requires — tracked from the design review's supply-chain findings:
    `components/<app>/` with empty deltas; thread a `COMPONENT` parameter through
    `deps.sh` / `build-image.sh` / the Containerfile (`ARG COMPONENT_DIR` +
    delta bundle), defaulting to preserve single-component builds.
-2. **Conflict gate:** build and unit-test the snapshot-diff gate against
+1. **Conflict gate:** build and unit-test the snapshot-diff gate against
    hand-crafted common/component snapshot pairs.
-3. **VM globals via the bundle:** install `common` as a `@common` perlbrew lib on
+1. **VM globals via the bundle:** install `common` as a `@common` perlbrew lib on
    the servers; formalize the current monolith in place.
-4. **Container pilot:** containerize one app `FROM common-runtime`, env-injected
+1. **Container pilot:** containerize one app `FROM common-runtime`, env-injected
    config, off the same `common` bundle.
-5. **Publish + sign** (D4/D3 prerequisites): platform artifacts to the registry.
-6. **Start splitting:** move deps from `common/` into component deltas, gated.
-7. **Cross-repo orchestration:** components manifest + gated fan-out, once
+1. **Publish + sign** (D4/D3 prerequisites): platform artifacts to the registry.
+1. **Start splitting:** move deps from `common/` into component deltas, gated.
+1. **Cross-repo orchestration:** components manifest + gated fan-out, once
    independent cadence is actually wanted.

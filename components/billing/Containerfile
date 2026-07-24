@@ -1,4 +1,8 @@
-# Example component Containerfile (design: ../../docs/multi-component.md).
+# Billing component Containerfile (design: ../../docs/multi-component.md).
+#
+# Second real component, alongside components/example — proves two components
+# built from the same common-dev/common-runtime platform stay isolated from
+# each other (see the multi-component CI job's cross-component checks).
 #
 # Template for a component's OWN repo. It builds on the platform's published
 # common-dev / common-runtime images: install this component's delta on top of
@@ -7,9 +11,8 @@
 # runtime that is common-runtime + this delta + the app.
 #
 # In a real component repo the FROM images are pinned by digest to a published
-# platform version; here they default to locally-built tags so `make
-# build-example-component` can build it end to end against this repo's own
-# common-dev / common-runtime.
+# platform version; here they default to locally-built tags so this repo's own
+# common-dev / common-runtime can be built end to end.
 
 ARG COMMON_IMAGE=myapp
 ARG COMMON_DEV_TAG=common-dev

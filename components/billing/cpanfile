@@ -1,0 +1,9 @@
+# components/billing/cpanfile — this component's OWN direct deps (its delta).
+# Modules already in common/ are inherited (same pinned version); listing one
+# here at an incompatible version is a hard error (scripts/bom-gate.pl).
+#
+# Path::Tiny (pure Perl, no extra deps) is deliberately a different module
+# than components/example's Test::Fatal — the two components sharing one
+# common-dev base must never leak each other's delta (tests/bats and the
+# multi-component CI job assert this directly).
+requires 'Path::Tiny';

@@ -263,10 +263,12 @@ jobs:
 
   multi-component:
     # End-to-end build of the multi-component platform (docs/multi-component.md):
-    # the shared common-dev / common-runtime images, then the example component
-    # built on top — resolve→gate→bundle→layered-install→run. Build-validates
-    # the common platform Containerfile stages and components/example/Containerfile
-    # that the unit/integration layers can only check in pieces.
+    # the shared common-dev / common-runtime images, then two components built
+    # on top (example, billing) — resolve→gate→bundle→layered-install→run.
+    # Build-validates the common platform Containerfile stages and the
+    # per-component Containerfiles that the unit/integration layers can only
+    # check in pieces, and — with two components sharing one common-dev base —
+    # asserts they never leak each other's delta.
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -350,6 +352,54 @@ jobs:
           uid=$(podman run --rm example-component:test id -u)
           [ "$uid" = "1001" ] || { echo "FAIL: component runtime uid=$uid, expected 1001"; exit 1; }
           echo "OK: component runtime runs as uid 1001"
+
+      - name: Bundle the billing component (resolve + BOM gate + vendor)
+        run: make bundle-component COMPONENT=components/billing
+
+      - name: Build the billing component image on top of the platform
+        run: |
+          cp "$(readlink -f bundles/billing/bundle-latest.tar.gz)" \
+             components/billing/bundle-latest.tar.gz
+          podman build -t billing-component:test \
+            -f components/billing/Containerfile components/billing
+
+      - name: Run the billing component (layered common + delta must load)
+        run: |
+          out=$(podman run --rm billing-component:test)
+          echo "$out"
+          echo "$out" | grep -q "Try::Tiny (common) + Path::Tiny (delta) both loaded"
+
+      - name: Invariants — delta-only layer, no toolchain, non-root (billing)
+        run: |
+          set -e
+          podman run --rm billing-component:test \
+            test -f /opt/cpan-component/lib/perl5/Path/Tiny.pm
+          if podman run --rm billing-component:test \
+               test -e /opt/cpan-component/lib/perl5/Try/Tiny.pm; then
+            echo "FAIL: Try/Tiny.pm should have been pruned from the component layer"; exit 1
+          fi
+          echo "OK: component layer is delta-only"
+          if podman run --rm billing-component:test sh -c 'command -v gcc || command -v make' 2>/dev/null; then
+            echo "FAIL: build tools leaked into the component runtime"; exit 1
+          fi
+          echo "OK: no build tools in the component runtime"
+          uid=$(podman run --rm billing-component:test id -u)
+          [ "$uid" = "1001" ] || { echo "FAIL: component runtime uid=$uid, expected 1001"; exit 1; }
+          echo "OK: component runtime runs as uid 1001"
+
+      - name: Cross-component isolation — neither component carries the other's delta
+        run: |
+          set -e
+          if podman run --rm example-component:test \
+               test -e /opt/cpan-component/lib/perl5/Path/Tiny.pm; then
+            echo "FAIL: billing's delta (Path::Tiny) leaked into example"; exit 1
+          fi
+          echo "OK: example has no Path::Tiny"
+          if podman run --rm billing-component:test \
+               test -e /opt/cpan-component/lib/perl5/Test/Fatal.pm; then
+            echo "FAIL: example's delta (Test::Fatal) leaked into billing"; exit 1
+          fi
+          echo "OK: billing has no Test::Fatal"
 
   enterprise-proxy:
     # Validates enterprise-proxy + custom-CA support against a REAL

@@ -341,6 +341,23 @@ Behind a corporate proxy: every download path (`fetch-artifacts.sh`, `microdnf`,
 accepted) — see [`docs/proxy.md`](docs/proxy.md) for the one tool that needed
 more than "just set the env var."
 
+## Known Limitations & Roadmap
+
+- **Per-component container-path bundling isn't built yet.** Components
+  resolve and bundle via the host-side `scripts/bundle-component.sh` only;
+  `bundle-common`'s container path (via the carton-runner) has no per-component
+  counterpart yet. See [`docs/multi-component.md`](docs/multi-component.md)'s
+  "Incremental roadmap" for this and the rest of the multi-component plan.
+- **Perl 5.28.1** (this repo's pinned default) **is EOL.** A version bump is
+  planned but not scheduled — see
+  [`docs/architecture.md#changing-perl-version`](docs/architecture.md#changing-perl-version)
+  for the procedure when it happens.
+- **UBI base image is pinned by tag**, not digest (`ubi9/ubi-minimal:9.6`).
+- **Image signing and OCI-artifact bundle storage** aren't implemented —
+  tracked as prerequisites for the multi-repo/multi-component target in
+  [`docs/multi-component.md`](docs/multi-component.md)'s "Prerequisites this
+  design assumes."
+
 ## Troubleshooting
 
 Common failure modes (missing bundle, build fails with missing dependencies, test failures, permission issues, missing bundle-hash label) and their fixes: [`docs/troubleshooting.md`](docs/troubleshooting.md).

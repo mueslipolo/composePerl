@@ -11,3 +11,5 @@
 # Seeded here with a tiny example set so the flow is runnable out of the box.
 requires 'Try::Tiny';
 requires 'Capture::Tiny';
+requires 'Mojolicious'; # dependency-free — the shared HTTP framework every
+                        # component's app.pl runs under (compose/README.md)

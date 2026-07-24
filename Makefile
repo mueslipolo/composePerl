@@ -1,7 +1,12 @@
-.PHONY: help status base dev-tools bundle update update-all dev runtime all run run-runtime fetch-artifacts mirror-artifacts check-artifacts test test-load-dev test-load-runtime test-full test-container-build clean sbom security-audit bundle-common bundle-component common-dev common-runtime
+.PHONY: help status base dev-tools bundle update update-all dev runtime all run run-runtime fetch-artifacts mirror-artifacts check-artifacts test test-load-dev test-load-runtime test-full test-container-build clean sbom security-audit bundle-common bundle-component common-dev common-runtime publish-platform compose-up compose-down
 
 # Multi-component: directory holding the shared common cpanfile(.snapshot).
 COMMON_DIR ?= common
+
+# Optional extra flags for `podman push` in `make publish-platform` — e.g.
+# PODMAN_PUSH_FLAGS=--tls-verify=false for a throwaway local plain-HTTP
+# registry (docs/multi-component.md's registry validation section).
+PODMAN_PUSH_FLAGS ?=
 
 # Optional: override the UBI base image to target a different RHEL/UBI version.
 # Default is UBI9 (set in Containerfile). Example:
@@ -117,6 +122,27 @@ common-runtime: check-artifacts ## Build the common-runtime platform image ($(IM
 	@podman build --target common-runtime -t $(IMAGE_NAME):common-runtime \
 	    $(if $(UBI_IMAGE),--build-arg UBI_IMAGE=$(UBI_IMAGE),) \
 	    -f Containerfile .
+
+publish-platform: ## Tag+push common-dev/common-runtime to REGISTRY (e.g. REGISTRY=localhost:5000/myapp) — needs common-dev/common-runtime built first
+	@if [ -z "$(REGISTRY)" ]; then \
+	    echo "ERROR: REGISTRY=host[:port]/path required (e.g. make publish-platform REGISTRY=localhost:5000/myapp)"; exit 2; \
+	fi
+	@podman tag $(IMAGE_NAME):common-dev $(REGISTRY):common-dev
+	@podman tag $(IMAGE_NAME):common-runtime $(REGISTRY):common-runtime
+	@podman push $(PODMAN_PUSH_FLAGS) $(REGISTRY):common-dev
+	@podman push $(PODMAN_PUSH_FLAGS) $(REGISTRY):common-runtime
+	@echo "==> Published $(REGISTRY):common-dev and $(REGISTRY):common-runtime"
+
+compose-up: ## Bundle both demo components and bring up the compose/Traefik routing demo (compose/README.md)
+	@./scripts/bundle-component.sh common components/example
+	@./scripts/bundle-component.sh common components/billing
+	@cp "$$(readlink -f bundles/example/bundle-latest.tar.gz)" components/example/bundle-latest.tar.gz
+	@cp "$$(readlink -f bundles/billing/bundle-latest.tar.gz)" components/billing/bundle-latest.tar.gz
+	@cd compose && podman-compose up --build -d
+	@echo "==> Up. Try: curl localhost:8080/example/  curl localhost:8080/billing/"
+
+compose-down: ## Tear down the compose/Traefik routing demo
+	@cd compose && podman-compose down
 
 run: ## Run the app in the dev image (podman run --rm $(IMAGE_NAME):dev)
 	@podman run --rm $(IMAGE_NAME):dev

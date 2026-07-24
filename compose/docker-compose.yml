@@ -1,0 +1,43 @@
+# Local routing demo (docs/multi-component.md): two real component services
+# behind Traefik, routed by path prefix. Run with podman-compose (or `podman
+# compose`, which delegates to it) — see compose/README.md for the full
+# sequence (bundle each component first; images aren't built automatically
+# from CPAN, only from the already-resolved bundle each Containerfile expects).
+#
+# Static file-provider routing (compose/dynamic.yml), not label-based
+# auto-discovery — see compose/README.md for why.
+
+services:
+  example:
+    build:
+      context: ../components/example
+      dockerfile: Containerfile
+    expose:
+      - "3000"
+
+  billing:
+    build:
+      context: ../components/billing
+      dockerfile: Containerfile
+    expose:
+      - "3000"
+
+  traefik:
+    image: docker.io/library/traefik:v3.1
+    # Static config entirely via CLI flags (no separate traefik.yml) — the
+    # file provider then supplies the actual routing rules from dynamic.yml.
+    command:
+      - --entrypoints.web.address=:80
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --api.dashboard=true
+      - --api.insecure=true
+    ports:
+      - "8080:80"   # routed traffic — curl localhost:8080/example/, /billing/
+      - "8081:8080" # Traefik dashboard (http://localhost:8081/dashboard/) —
+                    # Traefik's internal default "traefik" api entrypoint is
+                    # :8080, unrelated to the "web" entrypoint set to :80 above.
+    volumes:
+      - ./dynamic.yml:/etc/traefik/dynamic.yml:ro
+    depends_on:
+      - example
+      - billing

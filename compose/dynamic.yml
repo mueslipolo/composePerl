@@ -1,0 +1,47 @@
+# Static routing rules for Traefik's file provider (docker-compose.yml).
+#
+# One block per component here is the whole "onboarding cost" of this
+# approach — no podman-socket access needed, but also no auto-discovery.
+# Adding a new component means adding one router+service+middleware trio
+# below (see docs/multi-component.md's registry/routing notes for the
+# label-based alternative once podman-socket sharing is verified).
+
+http:
+  routers:
+    example:
+      rule: "PathPrefix(`/example`)"
+      entryPoints:
+        - web
+      service: example
+      middlewares:
+        - strip-example
+
+    billing:
+      rule: "PathPrefix(`/billing`)"
+      entryPoints:
+        - web
+      service: billing
+      middlewares:
+        - strip-billing
+
+  middlewares:
+    strip-example:
+      stripPrefix:
+        prefixes:
+          - "/example"
+
+    strip-billing:
+      stripPrefix:
+        prefixes:
+          - "/billing"
+
+  services:
+    example:
+      loadBalancer:
+        servers:
+          - url: "http://example:3000"
+
+    billing:
+      loadBalancer:
+        servers:
+          - url: "http://billing:3000"
