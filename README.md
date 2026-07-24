@@ -19,6 +19,9 @@ Everything from here down — the Containerfile stages, `make dev`/`make runtime
 - **Minimal Runtime**: Production image contains no compilers, build tools, or Carton
 - **Multi-RHEL targeting**: Build for any UBI version (8, 9, 10) via a single `UBI_IMAGE` build arg — UBI9 by default
 - **Comprehensive Testing**: bats unit tests, end-to-end Carton→cpm integration tests, and container-level module smoke tests
+- **SBOM**: CycloneDX inventory covering both OS packages and CPAN modules (`make sbom`) — see [`docs/sbom.md`](docs/sbom.md)
+- **Security audit**: known-CVE check against pinned CPAN/Perl-core modules and OS packages, weekly + on-demand (`make security-audit`) — see [`docs/security-audit.md`](docs/security-audit.md)
+- **Nexus-ready artifact fetching**: `scripts/fetch-artifacts.sh` can fetch from (and mirror into) an internal Nexus instead of the public internet — see [`docs/proxy.md`](docs/proxy.md)
 
 ## Quick Start
 
@@ -213,7 +216,7 @@ See [`docs/troubleshooting.md`](docs/troubleshooting.md) for build/test failure 
 
 ## Testing
 
-The repo has four testing layers (shell unit tests, an end-to-end Carton→cpm integration test, container module smoke tests, and a full container-build pipeline test) plus a `lint` CI job. Full reference, including the `tests/test-config.conf` format: [`tests/README.md`](tests/README.md).
+The repo has multiple testing layers (shell unit tests, an end-to-end Carton→cpm integration test, container module smoke tests, a full container-build pipeline test, and VM-deployment), plus separate CI jobs for linting, enterprise proxy/CA verification, SBOM generation, and the security audit. Full reference — including the `tests/test-config.conf` format and the complete, current CI job list — lives in [`tests/README.md`](tests/README.md).
 
 ```bash
 bats tests/bats/       # fastest layer: shell-level unit tests, no containers, typically <10 seconds
@@ -222,6 +225,12 @@ bats tests/bats/       # fastest layer: shell-level unit tests, no containers, t
 ## Architecture
 
 Five-stage Containerfile build (`perl-src → base → dev-tools → dev`, with `runtime` branching from `base`), plus a separate `Containerfile.deps` for bundle regeneration that reuses the same `dev-tools` toolchain layer. Full stage-by-stage breakdown, both Mermaid diagrams, RHEL/UBI targeting, and the Perl-version-upgrade procedure: [`docs/architecture.md`](docs/architecture.md).
+
+## Security & Supply Chain
+
+- **SBOM** (`make sbom`): a CycloneDX document covering both halves of a build — OS packages (via `syft`) and CPAN modules (via `scripts/generate-cpan-sbom.pl`, since no general-purpose SBOM tool has a Perl/CPAN cataloger). [`docs/sbom.md`](docs/sbom.md)
+- **Security audit** (`make security-audit`): checks pinned CPAN/Perl-core modules (`cpan-audit`, fails on any match) and OS packages (`trivy`, HIGH/CRITICAL only) against known CVEs, combined into one report. Runs weekly + on-demand in CI (`security-audit` job), not per-commit — advisory data moves on its own schedule. [`docs/security-audit.md`](docs/security-audit.md)
+- **Nexus-ready artifact fetching**: `scripts/fetch-artifacts.sh` fetches from an internal Nexus instead of the public internet when `NEXUS_URL` is set, and `make mirror-artifacts` populates that mirror (fetch from the internet, upload into Nexus) — groundwork for running this pipeline without direct internet egress. [`docs/proxy.md`](docs/proxy.md)
 
 ## Project Structure
 
@@ -246,7 +255,7 @@ Five-stage Containerfile build (`perl-src → base → dev-tools → dev`, with 
 ├── docs/
 │   ├── architecture.md        # Stage-by-stage breakdown, diagrams, RHEL/UBI targeting
 │   ├── troubleshooting.md     # Build/test failure modes
-│   ├── proxy.md                # Enterprise proxy support (http_proxy/https_proxy/no_proxy)
+│   ├── proxy.md                # Enterprise proxy support (http_proxy/https_proxy/no_proxy) + Nexus artifact fetch/mirror
 │   ├── vm-deployment.md       # Installing a bundle onto a perlbrew-managed legacy VM
 │   ├── sbom.md                 # SBOM generation (OS packages via syft + CPAN modules)
 │   └── security-audit.md      # CVE advisory audit: cpan-audit (CPAN/Perl-core) + trivy (OS packages)
@@ -254,7 +263,7 @@ Five-stage Containerfile build (`perl-src → base → dev-tools → dev`, with 
 │   ├── deps.sh                # CPAN dependency manager (bundle + snapshot update)
 │   ├── build-image.sh         # Container image builder
 │   ├── status.sh              # Bundle and image status checker
-│   ├── fetch-artifacts.sh     # Populates artifacts/ with hash-pinned downloads
+│   ├── fetch-artifacts.sh     # Populates artifacts/ with hash-pinned downloads (public internet, or Nexus if NEXUS_URL is set; --mirror populates Nexus)
 │   ├── test-load-modules.sh   # Quick module smoke test runner
 │   ├── test-run-suites.sh     # Full CPAN test suite runner
 │   ├── vm-bootstrap-perlbrew.sh # Installs perlbrew + pinned Perl onto a VM

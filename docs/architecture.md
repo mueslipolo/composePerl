@@ -110,6 +110,29 @@ cpm install --resolver 02packages,file:///build/vendor/cache
 
 This ensures builds work completely offline once the bundle is generated.
 
+## Supply Chain & Security
+
+Two complementary checks sit on top of the images/bundle this pipeline
+produces — both cover the same two halves of a build (OS packages and CPAN
+modules), for the same reason both halves matter for traceability above:
+
+- **SBOM** (`make sbom`, [`docs/sbom.md`](sbom.md)): a CycloneDX inventory
+  combining `syft` (OS packages) with `scripts/generate-cpan-sbom.pl` (CPAN
+  modules, via `pkg:cpan/...` purls) — no general-purpose SBOM tool has a
+  Perl/CPAN cataloger, confirmed against `syft`'s own source and empirically
+  against a real build.
+- **Security audit** (`make security-audit`,
+  [`docs/security-audit.md`](security-audit.md)): checks the same two halves
+  for known CVEs — `cpan-audit` against `cpanfile.snapshot` (fails on any
+  match) and `trivy` against the built `runtime` image (HIGH/CRITICAL only).
+  Runs weekly + on-demand in CI, not per-commit.
+
+Artifact provenance is a related concern one level down: `scripts/fetch-artifacts.sh`
+can fetch the Perl source tarball, `cpanm`, `cpm`, and Oracle Instant Client
+from an internal Nexus instead of the public internet (`NEXUS_URL`), and
+`make mirror-artifacts` populates that mirror — see
+[`docs/proxy.md`](proxy.md#fetching-artifacts-from-an-internal-nexus-instead-of-the-public-internet).
+
 ## Targeting Different RHEL/UBI Versions
 
 XS modules (`DBD::Oracle`, `DBD::Pg`, `JSON::XS`, etc.) are compiled against the glibc and OpenSSL of the base image. If production servers run a different RHEL major version, build with the matching UBI image so the compiled `.so` files load correctly — mismatching this is the same class of ABI failure the [VM deployment version-compatibility gate](vm-deployment.md#version-compatibility-gate--check-this-before-installing) exists to catch on the perlbrew side.

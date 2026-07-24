@@ -1,6 +1,6 @@
 # Test Suite Documentation
 
-This repo has four testing layers with different scope, speed, and infrastructure requirements, plus a separate `lint` CI job (hadolint + shellcheck) that isn't a test layer but gates the same push/PR.
+This repo has five testing layers with different scope, speed, and infrastructure requirements, plus CI jobs that aren't test layers themselves: `lint` (hadolint + shellcheck), `enterprise-proxy` (real proxy/CA verification), `sbom` (CycloneDX generation), and `security-audit` (CVE checks) — see the [CI overview](#ci-overview) at the bottom for the complete, current list.
 
 ## Layer 1 — Shell unit tests (`tests/bats/`)
 
