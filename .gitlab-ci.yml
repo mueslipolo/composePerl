@@ -1,0 +1,505 @@
+# GitLab CI translation of .github/workflows/test.yml — see docs/gitlab-ci.md
+# for the full GH→GitLab mapping, the CI/CD variables this file expects, and
+# a "first things to validate on real infrastructure" checklist. Both
+# pipelines are meant to coexist: .github/workflows/test.yml is untouched.
+#
+# ASSUMPTIONS (labeled here, correct once real org access exists — see
+# docs/gitlab-ci.md for the full list):
+#   - GitLab Runner uses the Docker executor with `privileged = true` (a
+#     runner-config prerequisite outside this repo, not controllable from
+#     here) — every job below runs podman-in-Docker via quay.io/podman/stable
+#     with STORAGE_DRIVER=vfs. This is the single riskiest, least-verifiable
+#     assumption in this file.
+#   - The weekly security-audit cadence is NOT configured here — GitLab
+#     Pipeline Schedules (Project > Build > Pipeline schedules) is where the
+#     actual cron lives; this file only reacts to $CI_PIPELINE_SOURCE ==
+#     "schedule" once that schedule exists.
+#   - Nexus raw-hosted artifact repo convention matches what
+#     scripts/fetch-artifacts.sh already assumes (docs/proxy.md) — set
+#     NEXUS_URL/NEXUS_USER/NEXUS_PASSWORD as CI/CD variables.
+#   - Docker/OCI registry hostname is a placeholder (REGISTRY_HOST) — set as
+#     a CI/CD variable once known; used only by jobs that pull UBI_IMAGE
+#     through Nexus (none, by default) or explicitly publish (none in this
+#     file — make publish-platform stays a manual/local operation for now).
+
+stages:
+  - lint
+  - test
+  - build
+  - audit
+
+variables:
+  IMAGE_NAME: myapp
+  STORAGE_DRIVER: vfs
+  GIT_DEPTH: "1"
+  CPANM_VERSION: "1.7048"
+  CPANM_SHA256: "4c5dcaac65e0c3e6e4272fd0f5c0a9c9ebdcbb29cdf329b18478b52f6883071c"
+  HADOLINT_VERSION: "2.12.0"
+  HADOLINT_SHA256: "56de6d5e5ec427e17b74fa48d51271c7fc0d61244bf5c90e828aab8362d55010"
+  SYFT_VERSION: "1.20.0"
+  SYFT_SHA256: "689e12c5cbf67521ce61b9c126068f9eaabe1223e77971b2fede50033ff6b5cc"
+  TRIVY_VERSION: "0.72.0"
+  TRIVY_SHA256: "bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea"
+  BATS_CORE_COMMIT: "b640ec3cf2c7c9cfc9e6351479261186f76eeec8"
+
+# ── Shared templates ─────────────────────────────────────────────────────────
+
+.default-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: never
+    - when: on_success
+
+.schedule-or-manual-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+
+.podman-job:
+  image: quay.io/podman/stable
+  needs: []
+
+.artifacts-cache:
+  cache:
+    key:
+      files:
+        - scripts/fetch-artifacts.sh
+        - Containerfile
+    paths:
+      - artifacts/
+      - artifacts.sha256
+
+.install-cpanm: &install_cpanm |
+  curl -fsSL --proto '=https' --proto-redir '=https' -o /tmp/cpanm \
+    https://raw.githubusercontent.com/miyagawa/cpanminus/${CPANM_VERSION}/cpanm
+  echo "${CPANM_SHA256}  /tmp/cpanm" | sha256sum -c -
+
+# ── lint ──────────────────────────────────────────────────────────────────
+
+lint:
+  extends: [.podman-job, .default-rules]
+  stage: lint
+  script:
+    - set -e
+    - dnf install -y ShellCheck >/dev/null
+    - shellcheck scripts/*.sh tests/container-build/setup.sh tests/mitm-proxy/generate-test-ca.sh
+      tests/bats/mocks/podman tests/bats/mocks/*/*
+    - curl -fsSL --proto '=https' --proto-redir '=https' -o /tmp/hadolint
+      https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-Linux-x86_64
+    - echo "${HADOLINT_SHA256}  /tmp/hadolint" | sha256sum -c -
+    - install -m 0755 /tmp/hadolint /usr/local/bin/hadolint
+    - hadolint Containerfile
+    - hadolint Containerfile.deps
+
+# ── bats ──────────────────────────────────────────────────────────────────
+
+bats:
+  extends: [.podman-job, .default-rules]
+  stage: test
+  script:
+    - set -e
+    - dnf install -y git >/dev/null
+    - git clone https://github.com/bats-core/bats-core.git /tmp/bats-core
+    - git -C /tmp/bats-core checkout --quiet ${BATS_CORE_COMMIT}
+    - /tmp/bats-core/install.sh /usr/local
+    - bats tests/bats/
+
+# ── integration ───────────────────────────────────────────────────────────
+
+integration:
+  extends: [.podman-job, .default-rules]
+  stage: test
+  timeout: 30m
+  script:
+    - set -e
+    - dnf install -y perl >/dev/null
+    - *install_cpanm
+    - perl /tmp/cpanm --notest -n -l ~/perl5 Carton App::cpm
+    - export PATH="$HOME/perl5/bin:$PATH" PERL5LIB="$HOME/perl5/lib/perl5"
+    # Phase 1: install from committed snapshot (mirrors the dev Containerfile stage).
+    - cd tests/integration && carton install && carton bundle
+    - tar czf /tmp/cpan-bundle.tar.gz ./vendor cpanfile cpanfile.snapshot
+    - cd "${CI_PROJECT_DIR}"
+    - mkdir -p /tmp/work-orig /tmp/perl-install
+    - tar xzf /tmp/cpan-bundle.tar.gz -C /tmp/work-orig
+    - rm /tmp/work-orig/cpanfile.snapshot
+    - (cd /tmp/work-orig && cpm install -L /tmp/perl-install --resolver "02packages,file://$PWD/vendor/cache")
+    - PERL5LIB=/tmp/perl-install/lib/perl5 perl tests/integration/test-load.pl
+    # Phase 2: carton update (real Carton-level test of the MR1 fix).
+    - cd tests/integration
+    - before_try=$(grep "pathname.*Try-Tiny" cpanfile.snapshot)
+    - before_dbd=$(grep "pathname.*DBD-SQLite" cpanfile.snapshot)
+    - before_dbi=$(grep "pathname.*DBI-" cpanfile.snapshot)
+    - carton update Try::Tiny
+    - after_try=$(grep "pathname.*Try-Tiny" cpanfile.snapshot)
+    - after_dbd=$(grep "pathname.*DBD-SQLite" cpanfile.snapshot)
+    - after_dbi=$(grep "pathname.*DBI-" cpanfile.snapshot)
+    - |
+      if [ "$before_try" = "$after_try" ]; then
+        echo "FAIL: carton update Try::Tiny made no change"; exit 1
+      fi
+      if [ "$before_dbd" != "$after_dbd" ] || [ "$before_dbi" != "$after_dbi" ]; then
+        echo "FAIL: carton update Try::Tiny changed DBD::SQLite or DBI"; exit 1
+      fi
+      echo "OK: Try::Tiny updated, DBD::SQLite and DBI unchanged"
+    - carton bundle
+    - tar czf /tmp/cpan-bundle-updated.tar.gz ./vendor cpanfile cpanfile.snapshot
+    - cd "${CI_PROJECT_DIR}"
+    - mkdir -p /tmp/work-updated /tmp/perl-install-updated
+    - tar xzf /tmp/cpan-bundle-updated.tar.gz -C /tmp/work-updated
+    - rm /tmp/work-updated/cpanfile.snapshot
+    - (cd /tmp/work-updated && cpm install -L /tmp/perl-install-updated --resolver "02packages,file://$PWD/vendor/cache")
+    - PERL5LIB=/tmp/perl-install-updated/lib/perl5 perl tests/integration/test-load-updated.pl
+
+# ── container-build ───────────────────────────────────────────────────────
+
+container-build:
+  extends: [.podman-job, .default-rules, .artifacts-cache]
+  stage: build
+  timeout: 45m
+  script:
+    - set -e
+    - scripts/fetch-artifacts.sh
+    - WORKDIR=$(bash tests/container-build/setup.sh)
+    - cd "$WORKDIR"
+    - make bundle
+    - make all
+    - make test-load-dev
+    - make test-load-runtime
+    - |
+      if podman run --rm myapp:runtime sh -c 'command -v gcc || command -v make' 2>/dev/null; then
+        echo "FAIL: runtime image contains build tools"; exit 1
+      fi
+      echo "OK: runtime has no build tools"
+      uid=$(podman run --rm myapp:runtime id -u)
+      [ "$uid" = "1001" ] || { echo "FAIL: runtime uid=$uid, expected 1001"; exit 1; }
+      echo "OK: runtime runs as uid 1001"
+      snapshot_hash=$(sha256sum cpanfile.snapshot | cut -c1-12)
+      image_hash=$(podman inspect myapp:runtime --format '{{index .Config.Labels "bundle.hash"}}')
+      [ "$snapshot_hash" = "$image_hash" ] || { echo "FAIL: bundle-hash label mismatch"; exit 1; }
+      echo "OK: bundle-hash label matches snapshot ($image_hash)"
+
+# ── multi-component ───────────────────────────────────────────────────────
+
+multi-component:
+  extends: [.podman-job, .default-rules, .artifacts-cache]
+  stage: build
+  timeout: 45m
+  script:
+    - set -e
+    - dnf install -y perl curl >/dev/null
+    - *install_cpanm
+    - perl /tmp/cpanm --notest -n -l ~/perl5 Carton App::cpm
+    - export PATH="$HOME/perl5/bin:$PATH" PERL5LIB="$HOME/perl5/lib/perl5"
+    - scripts/fetch-artifacts.sh
+    - make bundle-common
+    - make common-dev
+    - make common-runtime
+    - make bundle-component COMPONENT=components/example
+    - cp "$(readlink -f bundles/example/bundle-latest.tar.gz)" components/example/bundle-latest.tar.gz
+    - podman build -t example-component:test -f components/example/Containerfile components/example
+    - |
+      podman run -d --name example-run -p 3001:3000 example-component:test
+      trap 'podman rm -f example-run' EXIT
+      out=""
+      for i in $(seq 1 30); do
+        if out=$(curl -sf http://localhost:3001/); then break; fi
+        sleep 1
+      done
+      echo "$out"
+      echo "$out" | grep -q "Capture::Tiny (common) + Test::Fatal (delta) both loaded"
+    - |
+      podman run --rm example-component:test test -f /opt/cpan-component/lib/perl5/Test/Fatal.pm
+      if podman run --rm example-component:test test -e /opt/cpan-component/lib/perl5/Try/Tiny.pm; then
+        echo "FAIL: Try/Tiny.pm should have been pruned"; exit 1
+      fi
+      if podman run --rm example-component:test sh -c 'command -v gcc || command -v make' 2>/dev/null; then
+        echo "FAIL: build tools leaked into the component runtime"; exit 1
+      fi
+      uid=$(podman run --rm example-component:test id -u)
+      [ "$uid" = "1001" ] || { echo "FAIL: example uid=$uid, expected 1001"; exit 1; }
+      echo "OK: example component invariants pass"
+    - make bundle-component COMPONENT=components/billing
+    - cp "$(readlink -f bundles/billing/bundle-latest.tar.gz)" components/billing/bundle-latest.tar.gz
+    - podman build -t billing-component:test -f components/billing/Containerfile components/billing
+    - |
+      podman run -d --name billing-run -p 3002:3000 billing-component:test
+      trap 'podman rm -f billing-run' EXIT
+      out=""
+      for i in $(seq 1 30); do
+        if out=$(curl -sf http://localhost:3002/); then break; fi
+        sleep 1
+      done
+      echo "$out"
+      echo "$out" | grep -q "Try::Tiny (common) + Path::Tiny (delta) both loaded"
+    - |
+      podman run --rm billing-component:test test -f /opt/cpan-component/lib/perl5/Path/Tiny.pm
+      if podman run --rm billing-component:test test -e /opt/cpan-component/lib/perl5/Try/Tiny.pm; then
+        echo "FAIL: Try/Tiny.pm should have been pruned"; exit 1
+      fi
+      if podman run --rm billing-component:test sh -c 'command -v gcc || command -v make' 2>/dev/null; then
+        echo "FAIL: build tools leaked into the component runtime"; exit 1
+      fi
+      uid=$(podman run --rm billing-component:test id -u)
+      [ "$uid" = "1001" ] || { echo "FAIL: billing uid=$uid, expected 1001"; exit 1; }
+      echo "OK: billing component invariants pass"
+    - |
+      if podman run --rm example-component:test test -e /opt/cpan-component/lib/perl5/Path/Tiny.pm; then
+        echo "FAIL: billing's delta leaked into example"; exit 1
+      fi
+      if podman run --rm billing-component:test test -e /opt/cpan-component/lib/perl5/Test/Fatal.pm; then
+        echo "FAIL: example's delta leaked into billing"; exit 1
+      fi
+      echo "OK: cross-component isolation holds"
+
+# ── enterprise-proxy ──────────────────────────────────────────────────────
+# HIGHEST-RISK job in this file (see the assumptions block at the top): this
+# and vm-deployment both run `podman run ... ubi9-minimal` from INSIDE the
+# already-podman-in-Docker-executor container — nested container execution,
+# unverified against a real GitLab runner. Validate this job first.
+
+enterprise-proxy:
+  extends: [.podman-job, .default-rules, .artifacts-cache]
+  stage: build
+  timeout: 20m
+  script:
+    - set -e
+    - dnf install -y python3 >/dev/null
+    - scripts/fetch-artifacts.sh
+    - tests/mitm-proxy/generate-test-ca.sh /tmp/test-ca
+      www.cpan.org fastapi.metacpan.org raw.githubusercontent.com
+      download.oracle.com www.oracle.com cdn-ubi.redhat.com
+    - nohup python3 tests/mitm-proxy/mitm_proxy.py 8899 /tmp/test-ca/leaf.pem /tmp/test-ca/leaf.key
+      > /tmp/mitm-proxy.log 2>&1 &
+    - sleep 1
+    - |
+      rm -rf /tmp/fetch-test-negative
+      mkdir -p /tmp/fetch-test-negative/scripts /tmp/fetch-test-negative/artifacts
+      cp scripts/fetch-artifacts.sh /tmp/fetch-test-negative/scripts/
+      cp Containerfile /tmp/fetch-test-negative/
+      cd /tmp/fetch-test-negative
+      if http_proxy=http://127.0.0.1:8899 https_proxy=http://127.0.0.1:8899 \
+          bash scripts/fetch-artifacts.sh > /tmp/fetch-negative.log 2>&1; then
+        echo "FAIL: fetch-artifacts.sh succeeded through the MITM proxy without CA trust"
+        cat /tmp/fetch-negative.log; exit 1
+      fi
+      cat /tmp/fetch-negative.log
+      grep -q "Network/TLS error" /tmp/fetch-negative.log || { echo "FAIL: no proxy/CA hint"; exit 1; }
+      echo "OK: correctly failed without CA trust, and the hint fired"
+      cd "${CI_PROJECT_DIR}"
+    - |
+      rm -rf /tmp/fetch-test-positive
+      mkdir -p /tmp/fetch-test-positive/scripts /tmp/fetch-test-positive/artifacts
+      cp scripts/fetch-artifacts.sh /tmp/fetch-test-positive/scripts/
+      cp Containerfile /tmp/fetch-test-positive/
+      cp artifacts/instantclient-*.zip /tmp/fetch-test-positive/artifacts/
+      cd /tmp/fetch-test-positive
+      http_proxy=http://127.0.0.1:8899 https_proxy=http://127.0.0.1:8899 \
+        CURL_CA_BUNDLE=/tmp/test-ca/test-ca.pem bash scripts/fetch-artifacts.sh
+      echo "OK: succeeded with CA trust; artifacts fetched through the proxy"
+      cd "${CI_PROJECT_DIR}"
+    - |
+      rm -rf /tmp/build-test-negative
+      mkdir -p /tmp/build-test-negative/artifacts /tmp/build-test-negative/certs
+      cp Containerfile /tmp/build-test-negative/
+      PERL_VERSION="$(sed -n 's/^ARG PERL_VERSION=//p' Containerfile)"
+      cp "artifacts/perl-${PERL_VERSION}.tar.gz" /tmp/build-test-negative/artifacts/
+      touch /tmp/build-test-negative/certs/.gitkeep
+      cd /tmp/build-test-negative
+      if podman build --no-cache --target perl-src -t proxy-negative-test:perl-src \
+          --build-arg "PERL_VERSION=${PERL_VERSION}" \
+          --build-arg http_proxy=http://host.containers.internal:8899 \
+          --build-arg https_proxy=http://host.containers.internal:8899 . > /tmp/build-negative.log 2>&1; then
+        echo "FAIL: build succeeded through the MITM proxy without CA trust"
+        cat /tmp/build-negative.log; exit 1
+      fi
+      cat /tmp/build-negative.log
+      grep -q "microdnf failed - check http_proxy/https_proxy" /tmp/build-negative.log || { echo "FAIL: no hint"; exit 1; }
+      echo "OK: correctly failed without CA trust, and the hint fired"
+      cd "${CI_PROJECT_DIR}"
+    - |
+      rm -rf /tmp/build-test-positive
+      mkdir -p /tmp/build-test-positive/artifacts /tmp/build-test-positive/certs
+      cp Containerfile /tmp/build-test-positive/
+      PERL_VERSION="$(sed -n 's/^ARG PERL_VERSION=//p' Containerfile)"
+      cp "artifacts/perl-${PERL_VERSION}.tar.gz" /tmp/build-test-positive/artifacts/
+      cp /tmp/test-ca/test-ca.pem /tmp/build-test-positive/certs/
+      cd /tmp/build-test-positive
+      podman build --no-cache --target perl-src -t proxy-positive-test:perl-src \
+        --build-arg "PERL_VERSION=${PERL_VERSION}" \
+        --build-arg http_proxy=http://host.containers.internal:8899 \
+        --build-arg https_proxy=http://host.containers.internal:8899 .
+      echo "OK: succeeded with CA trust; perl-src built through the proxy"
+      cd "${CI_PROJECT_DIR}"
+  after_script:
+    - cat /tmp/mitm-proxy.log || true
+
+# ── vm-deployment ─────────────────────────────────────────────────────────
+# Same nested-podman caveat as enterprise-proxy above.
+
+vm-deployment:
+  extends: [.podman-job, .default-rules, .artifacts-cache]
+  stage: build
+  timeout: 30m
+  script:
+    - set -e
+    - scripts/fetch-artifacts.sh
+    - WORKDIR=$(bash tests/container-build/setup.sh)
+    - (cd "$WORKDIR" && make bundle)
+    - podman run -d --name vm-deploy-test registry.access.redhat.com/ubi9/ubi-minimal:9.6 sleep infinity
+    - podman exec vm-deploy-test microdnf install -y perl gcc make tar gzip findutils patch unzip
+    - podman cp lib-packages.conf vm-deploy-test:/tmp/lib-packages.conf
+    - |
+      podman exec vm-deploy-test bash -c '
+        microdnf -y install $(grep -v -E "^[[:space:]]*(#|$)" /tmp/lib-packages.conf | cut -d"|" -f1 | sed -e "s/^[[:space:]]*//" -e "s/[[:space:]]*$//" -e "/^$/d")
+        microdnf -y install $(grep -v -E "^[[:space:]]*(#|$)" /tmp/lib-packages.conf | cut -d"|" -f2 | sed -e "s/^[[:space:]]*//" -e "s/[[:space:]]*$//" -e "/^$/d")
+        rm -f /tmp/lib-packages.conf
+      '
+    - |
+      podman cp artifacts/instantclient-basiclite-linux.x64-23.8.0.25.04.zip vm-deploy-test:/tmp/
+      podman cp artifacts/instantclient-sdk-linux.x64-23.8.0.25.04.zip vm-deploy-test:/tmp/
+      podman exec vm-deploy-test bash -c '
+        unzip -o -q /tmp/instantclient-basiclite*.zip -d /opt/oracle
+        mv /opt/oracle/instantclient_* /opt/oracle/instantclient
+        rm -f /opt/oracle/instantclient/*.jar /opt/oracle/instantclient/libocci.so
+        unzip -o -q /tmp/instantclient-sdk*.zip -d /opt/oracle-sdk-extract
+        mv /opt/oracle-sdk-extract/instantclient_*/sdk /opt/oracle/instantclient/sdk
+        rm -rf /opt/oracle-sdk-extract /tmp/instantclient-*.zip
+      '
+    - |
+      PERL_VERSION="$(sed -n 's/^ARG PERL_VERSION=//p' Containerfile)"
+      BUNDLE_DIR="$WORKDIR/bundles"
+      podman exec vm-deploy-test mkdir -p /vm-deploy
+      podman cp scripts/vm-bootstrap-perlbrew.sh vm-deploy-test:/vm-deploy/
+      podman cp scripts/vm-check-compat.sh vm-deploy-test:/vm-deploy/
+      podman cp scripts/vm-install-bundle.sh vm-deploy-test:/vm-deploy/
+      podman cp "artifacts/$(readlink artifacts/cpm)" vm-deploy-test:/vm-deploy/cpm
+      podman cp "artifacts/perl-${PERL_VERSION}.tar.gz" vm-deploy-test:/vm-deploy/perl-${PERL_VERSION}.tar.gz
+      podman cp "${BUNDLE_DIR}/$(readlink "${BUNDLE_DIR}/bundle-latest.tar.gz")" vm-deploy-test:/vm-deploy/bundle.tar.gz
+      podman cp "${BUNDLE_DIR}/$(readlink "${BUNDLE_DIR}/bundle-latest.build-info")" vm-deploy-test:/vm-deploy/bundle.build-info
+      podman exec vm-deploy-test chmod +x /vm-deploy/vm-bootstrap-perlbrew.sh /vm-deploy/vm-check-compat.sh /vm-deploy/vm-install-bundle.sh /vm-deploy/cpm
+    - |
+      podman exec -w /vm-deploy vm-deploy-test bash -c '
+        export HOME=/root
+        PERL_VERSION="$(sed -n "s/^PERL_VERSION=//p" bundle.build-info)"
+        ./vm-bootstrap-perlbrew.sh "$PERL_VERSION" ./perl-${PERL_VERSION}.tar.gz
+      '
+    - |
+      podman exec -w /vm-deploy vm-deploy-test bash -c '
+        export HOME=/root PERLBREW_ROOT=/root/perl5/perlbrew
+        ./vm-check-compat.sh bundle.build-info
+      '
+    - |
+      podman exec -w /vm-deploy vm-deploy-test bash -c '
+        export HOME=/root PERLBREW_ROOT=/root/perl5/perlbrew
+        export LD_LIBRARY_PATH=/opt/oracle/instantclient ORACLE_HOME=/opt/oracle/instantclient
+        ./vm-install-bundle.sh bundle.tar.gz bundle.build-info myapp ./cpm
+      '
+    - |
+      podman exec vm-deploy-test mkdir -p /vm-deploy/tests
+      podman cp tests/module-load-test.pl vm-deploy-test:/vm-deploy/tests/
+      podman cp tests/TestConfig.pm vm-deploy-test:/vm-deploy/tests/
+      podman cp tests/container-build/test-load.pl vm-deploy-test:/vm-deploy/tests/
+      podman cp tests/container-build/cpanfile vm-deploy-test:/vm-deploy/tests/
+      podman exec vm-deploy-test bash -c '
+        export HOME=/root PERLBREW_ROOT=/root/perl5/perlbrew
+        export PERLBREW_PERL="perl-$(sed -n "s/^PERL_VERSION=//p" /vm-deploy/bundle.build-info)"
+        export PERLBREW_LIB=myapp
+        export LD_LIBRARY_PATH=/opt/oracle/instantclient ORACLE_HOME=/opt/oracle/instantclient
+        source /root/perl5/perlbrew/etc/bashrc
+        cp /vm-deploy/tests/cpanfile /tmp/cpanfile
+        : > /tmp/test-config.conf
+        perl /vm-deploy/tests/module-load-test.pl
+        perl /vm-deploy/tests/test-load.pl --expect-try-tiny-max=0.30
+      '
+    - |
+      tests/mitm-proxy/generate-test-ca.sh /tmp/vm-test-ca install.perlbrew.pl raw.githubusercontent.com
+      nohup python3 tests/mitm-proxy/mitm_proxy.py 8898 /tmp/vm-test-ca/leaf.pem /tmp/vm-test-ca/leaf.key \
+        > /tmp/vm-mitm-proxy.log 2>&1 &
+      sleep 1
+      podman run -d --name vm-proxy-test registry.access.redhat.com/ubi9/ubi-minimal:9.6 sleep infinity
+      podman exec vm-proxy-test microdnf install -y perl gcc make tar gzip findutils patch
+      podman exec vm-proxy-test mkdir -p /vm-deploy
+      podman cp scripts/vm-bootstrap-perlbrew.sh vm-proxy-test:/vm-deploy/
+      PERL_VERSION="$(sed -n 's/^ARG PERL_VERSION=//p' Containerfile)"
+      podman cp "artifacts/perl-${PERL_VERSION}.tar.gz" vm-proxy-test:/vm-deploy/perl-${PERL_VERSION}.tar.gz
+      podman exec vm-proxy-test chmod +x /vm-deploy/vm-bootstrap-perlbrew.sh
+      if podman exec -w /vm-deploy vm-proxy-test bash -c "
+          export HOME=/root
+          export https_proxy=http://host.containers.internal:8898
+          export http_proxy=http://host.containers.internal:8898
+          ./vm-bootstrap-perlbrew.sh ${PERL_VERSION} ./perl-${PERL_VERSION}.tar.gz
+      " > /tmp/vm-negative.log 2>&1; then
+        echo "FAIL: vm-bootstrap-perlbrew.sh succeeded through the MITM proxy without VM_CA_CERT"
+        cat /tmp/vm-negative.log; exit 1
+      fi
+      cat /tmp/vm-negative.log
+      grep -q "Network/TLS error" /tmp/vm-negative.log || { echo "FAIL: no proxy/CA hint"; exit 1; }
+      echo "OK: correctly failed without CA trust, and the hint fired"
+    - |
+      podman cp /tmp/vm-test-ca/test-ca.pem vm-proxy-test:/vm-deploy/corp-ca.pem
+      podman exec vm-proxy-test rm -rf /root/perl5
+      PERL_VERSION="$(sed -n 's/^ARG PERL_VERSION=//p' Containerfile)"
+      podman exec -w /vm-deploy vm-proxy-test bash -c "
+        export HOME=/root
+        export https_proxy=http://host.containers.internal:8898
+        export http_proxy=http://host.containers.internal:8898
+        export VM_CA_CERT=/vm-deploy/corp-ca.pem
+        ./vm-bootstrap-perlbrew.sh ${PERL_VERSION} ./perl-${PERL_VERSION}.tar.gz
+      "
+      echo "OK: succeeded with VM_CA_CERT trust; perlbrew installed through the proxy"
+  after_script:
+    - cat /tmp/vm-mitm-proxy.log || true
+
+# ── sbom ──────────────────────────────────────────────────────────────────
+
+sbom:
+  extends: [.podman-job, .default-rules, .artifacts-cache]
+  stage: build
+  timeout: 30m
+  script:
+    - set -e
+    - dnf install -y jq perl >/dev/null
+    - curl -fsSL --proto '=https' --proto-redir '=https' -o /tmp/syft.tar.gz
+      https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz
+    - echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum -c -
+    - tar xzf /tmp/syft.tar.gz -C /tmp syft && install -m 0755 /tmp/syft /usr/local/bin/syft
+    - scripts/fetch-artifacts.sh
+    - WORKDIR=$(bash tests/container-build/setup.sh)
+    - (cd "$WORKDIR" && make bundle && make all)
+    - *install_cpanm
+    - perl /tmp/cpanm --notest -n -l ~/perl5 Carton CPAN::DistnameInfo
+    - export PATH="$HOME/perl5/bin:$PATH" PERL5LIB="$HOME/perl5/lib/perl5"
+    - (cd "$WORKDIR" && ./scripts/generate-sbom.sh "${CI_PROJECT_DIR}/sbom.json")
+  artifacts:
+    paths:
+      - sbom.json
+
+# ── security-audit ────────────────────────────────────────────────────────
+
+security-audit:
+  extends: [.podman-job, .schedule-or-manual-rules, .artifacts-cache]
+  stage: audit
+  timeout: 30m
+  script:
+    - set -e
+    - dnf install -y jq perl >/dev/null
+    - *install_cpanm
+    - perl /tmp/cpanm --notest -n -l ~/perl5 CPAN::Audit
+    - export PATH="$HOME/perl5/bin:$PATH" PERL5LIB="$HOME/perl5/lib/perl5"
+    - curl -fsSL --proto '=https' --proto-redir '=https' -o /tmp/trivy.tar.gz
+      https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz
+    - echo "${TRIVY_SHA256}  /tmp/trivy.tar.gz" | sha256sum -c -
+    - tar xzf /tmp/trivy.tar.gz -C /tmp trivy && install -m 0755 /tmp/trivy /usr/local/bin/trivy
+    - scripts/fetch-artifacts.sh
+    - WORKDIR=$(bash tests/container-build/setup.sh)
+    - (cd "$WORKDIR" && make bundle && make all)
+    # Deliberately run from the real checkout, not $WORKDIR: cpan-audit needs
+    # this checkout's real cpanfile.snapshot, while trivy needs the
+    # myapp:runtime image tagged above — podman's image store is global, not
+    # directory-scoped, so both are found correctly from here.
+    - ./scripts/security-audit.sh "${CI_PROJECT_DIR}/security-audit.json"
+  artifacts:
+    when: always
+    paths:
+      - security-audit.json

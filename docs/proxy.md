@@ -128,6 +128,25 @@ same filenames already used in `artifacts/`/`artifacts.sha256`. Fetching
 expected to be reachable per your `no_proxy` configuration above (an
 environment concern, not something the script special-cases).
 
+## Authenticating against a Docker/OCI registry (Nexus or otherwise)
+
+Separate from the raw-hosted artifact repo above — pulling `UBI_IMAGE`
+through an authenticated registry, or `make publish-platform` pushing
+`common-dev`/`common-runtime`, both need `podman` to be logged in first:
+
+```bash
+make registry-login REGISTRY_HOST=nexus.example.org REGISTRY_USER=svc-ci REGISTRY_PASSWORD=...
+make publish-platform REGISTRY=nexus.example.org/myapp
+```
+
+The password goes to `podman login` via stdin, never as a command-line
+argument, so it never appears in `ps`/shell history — the same lesson
+already applied to `--mirror`'s Nexus credentials above. Once logged in,
+podman's credential cache covers every subsequent `build`/`pull`/`push` in
+the same shell — no other script needs to know about it.
+
+See [`docs/gitlab-ci.md`](gitlab-ci.md) for how this fits into CI.
+
 ## Troubleshooting
 
 - **`make fetch-artifacts` hangs or times out**: confirm `https_proxy` is set

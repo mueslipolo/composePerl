@@ -1,4 +1,4 @@
-.PHONY: help status base dev-tools bundle update update-all dev runtime all run run-runtime fetch-artifacts mirror-artifacts check-artifacts test test-load-dev test-load-runtime test-full test-container-build clean sbom security-audit bundle-common bundle-component common-dev common-runtime publish-platform compose-up compose-down
+.PHONY: help status base dev-tools bundle update update-all dev runtime all run run-runtime fetch-artifacts mirror-artifacts check-artifacts test test-load-dev test-load-runtime test-full test-container-build clean sbom security-audit bundle-common bundle-component common-dev common-runtime publish-platform registry-login compose-up compose-down
 
 # Multi-component: directory holding the shared common cpanfile(.snapshot).
 COMMON_DIR ?= common
@@ -123,7 +123,15 @@ common-runtime: check-artifacts ## Build the common-runtime platform image ($(IM
 	    $(if $(UBI_IMAGE),--build-arg UBI_IMAGE=$(UBI_IMAGE),) \
 	    -f Containerfile .
 
-publish-platform: ## Tag+push common-dev/common-runtime to REGISTRY (e.g. REGISTRY=localhost:5000/myapp) — needs common-dev/common-runtime built first
+registry-login: ## Authenticate podman against REGISTRY_HOST (e.g. a Nexus Docker registry) — needed before publish-platform or a build that pulls UBI_IMAGE through it
+	@if [ -z "$(REGISTRY_HOST)" ] || [ -z "$(REGISTRY_USER)" ] || [ -z "$(REGISTRY_PASSWORD)" ]; then \
+	    echo "ERROR: REGISTRY_HOST, REGISTRY_USER, and REGISTRY_PASSWORD all required" >&2; \
+	    echo "  (e.g. make registry-login REGISTRY_HOST=nexus.example.org REGISTRY_USER=svc-ci REGISTRY_PASSWORD=...)" >&2; \
+	    exit 2; \
+	fi
+	@echo "$(REGISTRY_PASSWORD)" | podman login "$(REGISTRY_HOST)" -u "$(REGISTRY_USER)" --password-stdin
+
+publish-platform: ## Tag+push common-dev/common-runtime to REGISTRY (e.g. REGISTRY=localhost:5000/myapp) — needs common-dev/common-runtime built first; run `make registry-login` first if REGISTRY needs auth
 	@if [ -z "$(REGISTRY)" ]; then \
 	    echo "ERROR: REGISTRY=host[:port]/path required (e.g. make publish-platform REGISTRY=localhost:5000/myapp)"; exit 2; \
 	fi
