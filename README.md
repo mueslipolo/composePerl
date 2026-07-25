@@ -362,9 +362,12 @@ more than "just set the env var."
   (both pipelines coexist — GitHub Actions stays the proven one for now),
   with real assumptions labeled throughout. See
   [`docs/gitlab-ci.md`](docs/gitlab-ci.md) for the CI/CD variables it
-  expects and the "first things to validate" checklist, headed by nested
-  podman-in-Docker-executor (`enterprise-proxy`/`vm-deployment`) — the
-  riskiest, least-verifiable piece.
+  expects and the "first things to validate" checklist, headed by the real
+  VM-runner tag and confirming podman is actually present there (buildah is
+  confirmed, podman is not) — the riskiest, least-verifiable piece. Doing
+  the actual cutover?
+  [`docs/gitlab-migration.md`](docs/gitlab-migration.md) is the ordered
+  step-by-step checklist.
 
 ## Troubleshooting
 

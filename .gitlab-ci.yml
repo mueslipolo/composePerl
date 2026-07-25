@@ -3,13 +3,24 @@
 # a "first things to validate on real infrastructure" checklist. Both
 # pipelines are meant to coexist: .github/workflows/test.yml is untouched.
 #
-# ASSUMPTIONS (labeled here, correct once real org access exists — see
+# RUNNER TOPOLOGY (two separate pools — this is not a single homogeneous
+# fleet, and the job/runner split below is load-bearing, not cosmetic):
+#   - GitLab Runner's default pool is Kubernetes, deployed in OpenShift.
+#     Privileged pods are blocked cluster-wide, so no podman/buildah — jobs
+#     that don't touch a container engine at all (lint, bats, integration)
+#     run here as plain unprivileged pods.
+#   - A separate pool of VM-based runners already exists for building
+#     container images (buildah; podman's presence is UNCONFIRMED — see the
+#     defensive check each VM-runner job opens with). Real VMs, not
+#     Kubernetes-executor pods, so no privileged-pod restriction applies —
+#     every job that calls podman/buildah (container-build, multi-component,
+#     enterprise-proxy, vm-deployment, sbom, security-audit) is routed here
+#     via the `tags:` on `.vm-runner-job`.
+#   - `vm-container-build` (the tag below) is a PLACEHOLDER — correct it to
+#     the real tag once your platform team confirms it.
+#
+# OTHER ASSUMPTIONS (labeled here, correct once confirmed — see
 # docs/gitlab-ci.md for the full list):
-#   - GitLab Runner uses the Docker executor with `privileged = true` (a
-#     runner-config prerequisite outside this repo, not controllable from
-#     here) — every job below runs podman-in-Docker via quay.io/podman/stable
-#     with STORAGE_DRIVER=vfs. This is the single riskiest, least-verifiable
-#     assumption in this file.
 #   - The weekly security-audit cadence is NOT configured here — GitLab
 #     Pipeline Schedules (Project > Build > Pipeline schedules) is where the
 #     actual cron lives; this file only reacts to $CI_PIPELINE_SOURCE ==
@@ -30,7 +41,6 @@ stages:
 
 variables:
   IMAGE_NAME: myapp
-  STORAGE_DRIVER: vfs
   GIT_DEPTH: "1"
   CPANM_VERSION: "1.7048"
   CPANM_SHA256: "4c5dcaac65e0c3e6e4272fd0f5c0a9c9ebdcbb29cdf329b18478b52f6883071c"
@@ -55,9 +65,30 @@ variables:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_PIPELINE_SOURCE == "web"'
 
-.podman-job:
+.k8s-job:
+  # Default Kubernetes/OpenShift executor pool — for jobs that never touch
+  # podman/buildah. Fedora-based image just for a normal Linux userland
+  # (perl/git/shellcheck etc. via dnf); nothing container-engine-related
+  # about the choice.
   image: quay.io/podman/stable
   needs: []
+
+.vm-runner-job:
+  # Routes to the separate VM-based runner pool that already builds
+  # container images — real VMs, so no privileged-pod restriction applies.
+  # `vm-container-build` is a placeholder tag; replace with the real one.
+  tags:
+    - vm-container-build
+  needs: []
+
+# Populates certs/ from a File-type CI/CD variable (its value IS a path
+# GitLab writes the content to, not the content itself — no base64 needed).
+# No-op if CORP_CA_CERT isn't set, matching this repo's other optional
+# env-var conventions (UBI_IMAGE, http_proxy, ...). See docs/gitlab-ci.md.
+.corp-ca-setup:
+  before_script:
+    - mkdir -p certs
+    - if [ -n "${CORP_CA_CERT:-}" ]; then cp "$CORP_CA_CERT" certs/corp-ca.pem; fi
 
 .artifacts-cache:
   cache:
@@ -77,7 +108,7 @@ variables:
 # ── lint ──────────────────────────────────────────────────────────────────
 
 lint:
-  extends: [.podman-job, .default-rules]
+  extends: [.k8s-job, .default-rules, .corp-ca-setup]
   stage: lint
   script:
     - set -e
@@ -94,7 +125,7 @@ lint:
 # ── bats ──────────────────────────────────────────────────────────────────
 
 bats:
-  extends: [.podman-job, .default-rules]
+  extends: [.k8s-job, .default-rules, .corp-ca-setup]
   stage: test
   script:
     - set -e
@@ -107,7 +138,7 @@ bats:
 # ── integration ───────────────────────────────────────────────────────────
 
 integration:
-  extends: [.podman-job, .default-rules]
+  extends: [.k8s-job, .default-rules, .corp-ca-setup]
   stage: test
   timeout: 30m
   script:
@@ -154,11 +185,13 @@ integration:
 # ── container-build ───────────────────────────────────────────────────────
 
 container-build:
-  extends: [.podman-job, .default-rules, .artifacts-cache]
+  extends: [.vm-runner-job, .default-rules, .artifacts-cache, .corp-ca-setup]
   stage: build
   timeout: 45m
   script:
     - set -e
+    - |
+      command -v podman >/dev/null || { echo "ERROR: podman not found on this runner — see docs/gitlab-ci.md"; exit 1; }
     - scripts/fetch-artifacts.sh
     - WORKDIR=$(bash tests/container-build/setup.sh)
     - cd "$WORKDIR"
@@ -182,11 +215,13 @@ container-build:
 # ── multi-component ───────────────────────────────────────────────────────
 
 multi-component:
-  extends: [.podman-job, .default-rules, .artifacts-cache]
+  extends: [.vm-runner-job, .default-rules, .artifacts-cache, .corp-ca-setup]
   stage: build
   timeout: 45m
   script:
     - set -e
+    - |
+      command -v podman >/dev/null || { echo "ERROR: podman not found on this runner — see docs/gitlab-ci.md"; exit 1; }
     - dnf install -y perl curl >/dev/null
     - *install_cpanm
     - perl /tmp/cpanm --notest -n -l ~/perl5 Carton App::cpm
@@ -253,17 +288,15 @@ multi-component:
       echo "OK: cross-component isolation holds"
 
 # ── enterprise-proxy ──────────────────────────────────────────────────────
-# HIGHEST-RISK job in this file (see the assumptions block at the top): this
-# and vm-deployment both run `podman run ... ubi9-minimal` from INSIDE the
-# already-podman-in-Docker-executor container — nested container execution,
-# unverified against a real GitLab runner. Validate this job first.
 
 enterprise-proxy:
-  extends: [.podman-job, .default-rules, .artifacts-cache]
+  extends: [.vm-runner-job, .default-rules, .artifacts-cache, .corp-ca-setup]
   stage: build
   timeout: 20m
   script:
     - set -e
+    - |
+      command -v podman >/dev/null || { echo "ERROR: podman not found on this runner — see docs/gitlab-ci.md"; exit 1; }
     - dnf install -y python3 >/dev/null
     - scripts/fetch-artifacts.sh
     - tests/mitm-proxy/generate-test-ca.sh /tmp/test-ca
@@ -335,14 +368,15 @@ enterprise-proxy:
     - cat /tmp/mitm-proxy.log || true
 
 # ── vm-deployment ─────────────────────────────────────────────────────────
-# Same nested-podman caveat as enterprise-proxy above.
 
 vm-deployment:
-  extends: [.podman-job, .default-rules, .artifacts-cache]
+  extends: [.vm-runner-job, .default-rules, .artifacts-cache, .corp-ca-setup]
   stage: build
   timeout: 30m
   script:
     - set -e
+    - |
+      command -v podman >/dev/null || { echo "ERROR: podman not found on this runner — see docs/gitlab-ci.md"; exit 1; }
     - scripts/fetch-artifacts.sh
     - WORKDIR=$(bash tests/container-build/setup.sh)
     - (cd "$WORKDIR" && make bundle)
@@ -454,11 +488,13 @@ vm-deployment:
 # ── sbom ──────────────────────────────────────────────────────────────────
 
 sbom:
-  extends: [.podman-job, .default-rules, .artifacts-cache]
+  extends: [.vm-runner-job, .default-rules, .artifacts-cache, .corp-ca-setup]
   stage: build
   timeout: 30m
   script:
     - set -e
+    - |
+      command -v podman >/dev/null || { echo "ERROR: podman not found on this runner — see docs/gitlab-ci.md"; exit 1; }
     - dnf install -y jq perl >/dev/null
     - curl -fsSL --proto '=https' --proto-redir '=https' -o /tmp/syft.tar.gz
       https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz
@@ -478,11 +514,13 @@ sbom:
 # ── security-audit ────────────────────────────────────────────────────────
 
 security-audit:
-  extends: [.podman-job, .schedule-or-manual-rules, .artifacts-cache]
+  extends: [.vm-runner-job, .schedule-or-manual-rules, .artifacts-cache, .corp-ca-setup]
   stage: audit
   timeout: 30m
   script:
     - set -e
+    - |
+      command -v podman >/dev/null || { echo "ERROR: podman not found on this runner — see docs/gitlab-ci.md"; exit 1; }
     - dnf install -y jq perl >/dev/null
     - *install_cpanm
     - perl /tmp/cpanm --notest -n -l ~/perl5 CPAN::Audit
