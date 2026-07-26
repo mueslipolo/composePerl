@@ -256,7 +256,7 @@ The migration does not require splitting anything up front:
 - **End:** `common/` holds only the genuinely-shared set (including the common
   library's own deps); each component carries its true delta.
 
-## One bundle, two delivery targets (VM + container)
+## One bundle, two delivery mechanisms (VM perlbrew + container image)
 
 The bundle is delivery-neutral — `vendor/cache` (source distributions),
 `cpanfile`, `cpanfile.snapshot` — and installs the same way in both places
@@ -273,6 +273,19 @@ consuming the **same `common` bundle**:
 So "manage the global CPAN modules on the servers with the bundle system" and
 "go container-first" are the **same** source of truth used two ways — not two
 dependency-management systems to keep in sync.
+
+**"VM / perlbrew" above is the pre-containerization path** — apps not yet
+split out of the monolith, running the way they do today. **Once a
+component is containerized, it no longer runs on the VM at all**: the same
+image runs unmodified on a **developer's desktop** (Docker Desktop / Podman
+Desktop / `podman-compose` — see [`compose/`](../compose/README.md) for
+the local Traefik-routed multi-component demo) and in **production on
+Kubernetes (OpenShift)**, with per-environment config injected via
+ConfigMap/Secret (see "Config: environment-scoped" below). This repo's own
+CI already runs on that same OpenShift/Kubernetes pool — see
+`docs/gitlab-ci.md`'s runner-topology section. There's no separate "VM
+running containers" target: the VM row above is retired per-component as
+each one graduates to the container row.
 
 ## Config: environment-scoped, injected at runtime
 
@@ -317,8 +330,10 @@ consumes them and carries **its own git tags = its own versions**.
   copy-pasted or submoduled.
 - **Deploy-together, today, is a branch-name convention.** The near-term
   container equivalent is a **release-set manifest** (pin each app's image tag +
-  the common version; deploy the set), loosened later as apps stop sharing a
-  cadence.
+  the common version; deploy the set) — concretely, a `compose/` override for
+  a developer's desktop and a Kustomize overlay per environment on
+  Kubernetes/OpenShift, both reading the same pinned tags/digests — loosened
+  later as apps stop sharing a cadence.
 - **Fan-out of platform upgrades** (later): a components manifest drives
   automated bump PRs into each component repo; each runs the conflict gate;
   green auto-merges, red parks for the owner. Not needed until deps are actually
